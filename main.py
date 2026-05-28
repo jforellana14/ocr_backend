@@ -76,23 +76,27 @@ async def create_manual_document(
     origen: str = Form(""),
     destino: str = Form(""),
     producto: str = Form(""),
+    piloto: str = Form(""),
     no_orden_carga: str = Form(""),
     peso_entregado: str = Form(""),
     no_constancia_viaje: str = Form(""),
-    piloto: str = Form(""),
     file: UploadFile = File(...),
     db: Session = Depends(get_db)
 ):
     os.makedirs("uploads", exist_ok=True)
 
     file_ext = os.path.splitext(file.filename)[1]
+
+    if not file_ext:
+        file_ext = ".jpg"
+
     filename = f"{uuid.uuid4()}{file_ext}"
     file_path = os.path.join("uploads", filename)
 
     with open(file_path, "wb") as buffer:
         shutil.copyfileobj(file.file, buffer)
 
-    db_document = Document(
+    new_document = Document(
         fecha=fecha.upper(),
         origen=origen.upper(),
         destino=destino.upper(),
@@ -105,11 +109,11 @@ async def create_manual_document(
         raw_text=""
     )
 
-    db.add(db_document)
+    db.add(new_document)
     db.commit()
-    db.refresh(db_document)
+    db.refresh(new_document)
 
-    return db_document
+    return new_document
 
 @app.get("/documents", response_model=list[DocumentResponse])
 def get_documents(db: Session = Depends(get_db)):
