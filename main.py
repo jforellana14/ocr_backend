@@ -2,6 +2,7 @@ from fastapi import FastAPI, Depends
 from sqlalchemy.orm import Session
 from fastapi.responses import FileResponse
 from fastapi import Form
+from fastapi.middleware.cors import CORSMiddleware
 import uuid
 
 from database import SessionLocal, engine
@@ -17,6 +18,14 @@ import os
 Base.metadata.create_all(bind=engine)
 
 app = FastAPI(title="OCR Document System")
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
 
 
 def get_db():
