@@ -3,6 +3,7 @@ from sqlalchemy.orm import Session
 from fastapi.responses import FileResponse
 from fastapi import Form
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.staticfiles import StaticFiles
 import uuid
 
 from database import SessionLocal, engine
@@ -18,6 +19,15 @@ import os
 Base.metadata.create_all(bind=engine)
 
 app = FastAPI(title="OCR Document System")
+
+os.makedirs("uploads", exist_ok=True)
+
+app.mount(
+    "/uploads",
+    StaticFiles(directory="uploads"),
+    name="uploads"
+)
+
 
 app.add_middleware(
     CORSMiddleware,
@@ -91,7 +101,7 @@ async def create_manual_document(
         no_orden_carga=no_orden_carga.upper(),
         peso_entregado=peso_entregado.upper(),
         no_constancia_viaje=no_constancia_viaje.upper(),
-        image_path=file_path,
+        image_path=f"/uploads/{filename}",
         raw_text=""
     )
 
