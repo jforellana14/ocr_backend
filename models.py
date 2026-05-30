@@ -20,3 +20,11 @@ class Document(Base):
 
     raw_text = Column(Text, nullable=True)
     created_at = Column(DateTime, default=datetime.utcnow)
+
+class Pilot(Base):
+    __tablename__ = "pilots"
+
+    id = Column(Integer, primary_key=True, index=True)
+    nombre = Column(String, nullable=False, unique=True)
+    activo = Column(String, default="SI")
+    created_at = Column(DateTime, default=datetime.utcnow)

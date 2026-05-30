@@ -9,8 +9,8 @@ import cloudinary.uploader
 import uuid
 
 from database import SessionLocal, engine
-from models import Base, Document
-from schemas import DocumentCreate, DocumentResponse, DocumentUpdate
+from models import Base, Document, Pilot
+from schemas import DocumentCreate, DocumentResponse, DocumentUpdate, PilotCreate, PilotResponse
 from fastapi import HTTPException
 
 from fastapi import UploadFile, File
@@ -79,6 +79,59 @@ def create_document(
     return db_document
 
 from sqlalchemy import text
+
+@app.post("/pilots", response_model=PilotResponse)
+def create_pilot(
+    pilot: PilotCreate,
+    db: Session = Depends(get_db)
+):
+    nombre = pilot.nombre.upper().strip()
+
+    existing = db.query(Pilot).filter(Pilot.nombre == nombre).first()
+
+    if existing:
+        raise HTTPException(
+            status_code=400,
+            detail="Pilot already exists"
+        )
+
+    new_pilot = Pilot(
+        nombre=nombre,
+        activo="SI"
+    )
+
+    db.add(new_pilot)
+    db.commit()
+    db.refresh(new_pilot)
+
+    return new_pilot
+
+
+@app.get("/pilots", response_model=list[PilotResponse])
+def get_pilots(db: Session = Depends(get_db)):
+    return (
+        db.query(Pilot)
+        .filter(Pilot.activo == "SI")
+        .order_by(Pilot.nombre.asc())
+        .all()
+    )
+
+
+@app.delete("/pilots/{pilot_id}")
+def delete_pilot(
+    pilot_id: int,
+    db: Session = Depends(get_db)
+):
+    pilot = db.query(Pilot).filter(Pilot.id == pilot_id).first()
+
+    if not pilot:
+        raise HTTPException(status_code=404, detail="Pilot not found")
+
+    pilot.activo = "NO"
+
+    db.commit()
+
+    return {"message": "Pilot disabled successfully"}
 
 @app.put("/documents/{document_id}", response_model=DocumentResponse)
 def update_document(

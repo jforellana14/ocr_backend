@@ -25,6 +25,19 @@ class DocumentUpdate(BaseModel):
     peso_entregado: Optional[str] = None
     no_constancia_viaje: Optional[str] = None
 
+class PilotCreate(BaseModel):
+    nombre: str
+
+
+class PilotResponse(BaseModel):
+    id: int
+    nombre: str
+    activo: str
+    created_at: datetime
+
+    class Config:
+        from_attributes = True    
+
 class DocumentResponse(DocumentCreate):
     id: int
     created_at: datetime
