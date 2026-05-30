@@ -106,6 +106,23 @@ def create_pilot(
 
     return new_pilot
 
+@app.put("/pilots/{pilot_id}", response_model=PilotResponse)
+def update_pilot(
+    pilot_id: int,
+    pilot: PilotCreate,
+    db: Session = Depends(get_db)
+):
+    existing = db.query(Pilot).filter(Pilot.id == pilot_id).first()
+
+    if not existing:
+        raise HTTPException(status_code=404, detail="Pilot not found")
+
+    existing.nombre = pilot.nombre.upper().strip()
+
+    db.commit()
+    db.refresh(existing)
+
+    return existing
 
 @app.get("/pilots", response_model=list[PilotResponse])
 def get_pilots(db: Session = Depends(get_db)):
