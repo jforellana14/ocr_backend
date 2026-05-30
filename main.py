@@ -10,7 +10,8 @@ import uuid
 
 from database import SessionLocal, engine
 from models import Base, Document
-from schemas import DocumentCreate, DocumentResponse
+from schemas import DocumentCreate, DocumentResponse, DocumentUpdate
+from fastapi import HTTPException
 
 from fastapi import UploadFile, File
 import shutil
@@ -22,6 +23,12 @@ Base.metadata.create_all(bind=engine)
 
 app = FastAPI(title="OCR Document System")
 
+cloudinary.config(
+    cloud_name=os.getenv("CLOUDINARY_CLOUD_NAME"),
+    api_key=os.getenv("CLOUDINARY_API_KEY"),
+    api_secret=os.getenv("CLOUDINARY_API_SECRET"),
+    secure=True
+)
 os.makedirs("uploads", exist_ok=True)
 
 app.mount(
@@ -51,8 +58,7 @@ def get_db():
 @app.get("/")
 def root():
     return {"message": "OCR Backend Running"}
-
-
+    
 @app.post("/documents", response_model=DocumentResponse)
 def create_document(
     document: DocumentCreate,
@@ -72,6 +78,64 @@ def create_document(
 
     return db_document
 
+from sqlalchemy import text
+
+@app.put("/documents/{document_id}", response_model=DocumentResponse)
+def update_document(
+    document_id: int,
+    payload: DocumentUpdate,
+    db: Session = Depends(get_db)
+):
+    document = db.query(Document).filter(Document.id == document_id).first()
+
+    if not document:
+        raise HTTPException(status_code=404, detail="Document not found")
+
+    data = payload.dict(exclude_unset=True)
+
+    for key, value in data.items():
+        if isinstance(value, str):
+            setattr(document, key, value.upper())
+        else:
+            setattr(document, key, value)
+
+    db.commit()
+    db.refresh(document)
+
+    return document
+
+
+@app.delete("/documents/{document_id}")
+def delete_document(
+    document_id: int,
+    db: Session = Depends(get_db)
+):
+    document = db.query(Document).filter(Document.id == document_id).first()
+
+    if not document:
+        raise HTTPException(status_code=404, detail="Document not found")
+
+    db.delete(document)
+    db.commit()
+
+    return {"message": "Document deleted successfully"}
+
+
+@app.get("/pilots")
+def get_pilots(db: Session = Depends(get_db)):
+    pilots = (
+        db.query(Document.piloto)
+        .filter(Document.piloto.isnot(None))
+        .distinct()
+        .all()
+    )
+
+    return [
+        pilot[0]
+        for pilot in pilots
+        if pilot[0] and pilot[0].strip()
+    ]
+
 @app.post("/documents/manual", response_model=DocumentResponse)
 async def create_manual_document(
     fecha: str = Form(""),
@@ -85,18 +149,26 @@ async def create_manual_document(
     file: UploadFile = File(...),
     db: Session = Depends(get_db)
 ):
-    os.makedirs("uploads", exist_ok=True)
+    temp_dir = "temp_uploads"
+    os.makedirs(temp_dir, exist_ok=True)
 
-    file_ext = os.path.splitext(file.filename)[1]
+    file_ext = os.path.splitext(file.filename)[1] or ".jpg"
+    temp_filename = f"{uuid.uuid4()}{file_ext}"
+    temp_file_path = os.path.join(temp_dir, temp_filename)
 
-    if not file_ext:
-        file_ext = ".jpg"
-
-    filename = f"{uuid.uuid4()}{file_ext}"
-    file_path = os.path.join("uploads", filename)
-
-    with open(file_path, "wb") as buffer:
+    with open(temp_file_path, "wb") as buffer:
         shutil.copyfileobj(file.file, buffer)
+
+    upload_result = cloudinary.uploader.upload(
+        temp_file_path,
+        folder="ordenes_boletas",
+        resource_type="image"
+    )
+
+    image_url = upload_result.get("secure_url")
+
+    if os.path.exists(temp_file_path):
+        os.remove(temp_file_path)
 
     new_document = Document(
         fecha=fecha.upper(),
@@ -107,7 +179,7 @@ async def create_manual_document(
         no_orden_carga=no_orden_carga.upper(),
         peso_entregado=peso_entregado.upper(),
         no_constancia_viaje=no_constancia_viaje.upper(),
-        image_path=f"/uploads/{filename}",
+        image_path=image_url,
         raw_text=""
     )
 
