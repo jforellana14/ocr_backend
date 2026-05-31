@@ -17,6 +17,8 @@ class Document(Base):
     no_constancia_viaje = Column(String, nullable=True)
     piloto = Column(String, nullable=True)
     image_path = Column(String, nullable=True)
+    created_by_user_id = Column(Integer, nullable=True)
+    created_by_username = Column(String, nullable=True)
 
     raw_text = Column(Text, nullable=True)
     created_at = Column(DateTime, default=datetime.utcnow)

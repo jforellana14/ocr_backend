@@ -26,6 +26,21 @@ import os
 
 Base.metadata.create_all(bind=engine)
 
+from sqlalchemy import text
+
+with engine.connect() as conn:
+    conn.execute(text("""
+        ALTER TABLE documents
+        ADD COLUMN IF NOT EXISTS created_by_user_id INTEGER
+    """))
+
+    conn.execute(text("""
+        ALTER TABLE documents
+        ADD COLUMN IF NOT EXISTS created_by_username VARCHAR
+    """))
+
+    conn.commit()
+
 app = FastAPI(title="OCR Document System")
 
 SECRET_KEY = os.getenv("SECRET_KEY", "CHANGE_THIS_SECRET")
@@ -227,8 +242,12 @@ def delete_pilot(
 def update_document(
     document_id: int,
     payload: DocumentUpdate,
+    current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db)
 ):
+    if current_user.role == "PILOTO":
+        raise HTTPException(status_code=403, detail="Pilots cannot edit documents")
+    
     document = db.query(Document).filter(Document.id == document_id).first()
 
     if not document:
@@ -253,6 +272,9 @@ def delete_document(
     document_id: int,
     db: Session = Depends(get_db)
 ):
+    if current_user.role == "PILOTO":
+        raise HTTPException(status_code=403, detail="Pilots cannot delete documents")
+    
     document = db.query(Document).filter(Document.id == document_id).first()
 
     if not document:
@@ -290,7 +312,8 @@ async def create_manual_document(
     peso_entregado: str = Form(""),
     no_constancia_viaje: str = Form(""),
     file: UploadFile = File(...),
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
 ):
     temp_dir = "temp_uploads"
     os.makedirs(temp_dir, exist_ok=True)
@@ -313,17 +336,24 @@ async def create_manual_document(
     if os.path.exists(temp_file_path):
         os.remove(temp_file_path)
 
+    final_piloto = piloto.upper().strip()
+
+    if current_user.role == "PILOTO":
+        final_piloto = current_user.piloto_nombre.upper().strip()
+
     new_document = Document(
         fecha=fecha.upper(),
         origen=origen.upper(),
         destino=destino.upper(),
         producto=producto.upper(),
-        piloto=piloto.upper(),
+        piloto=final_piloto,
         no_orden_carga=no_orden_carga.upper(),
         peso_entregado=peso_entregado.upper(),
         no_constancia_viaje=no_constancia_viaje.upper(),
         image_path=image_url,
-        raw_text=""
+        raw_text="",
+        created_by_user_id=current_user.id,
+        created_by_username=current_user.username
     )
 
     db.add(new_document)
@@ -333,8 +363,18 @@ async def create_manual_document(
     return new_document
 
 @app.get("/documents", response_model=list[DocumentResponse])
-def get_documents(db: Session = Depends(get_db)):
-    return db.query(Document).all()
+def get_documents(
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    query = db.query(Document)
+
+    if current_user.role == "PILOTO":
+        query = query.filter(
+            Document.created_by_user_id == current_user.id
+        )
+
+    return query.order_by(Document.created_at.desc()).all()
 
 @app.post("/auth/login")
 def login(

@@ -38,8 +38,20 @@ class PilotResponse(BaseModel):
     class Config:
         from_attributes = True    
 
-class DocumentResponse(DocumentCreate):
+class DocumentResponse(BaseModel):
     id: int
+    fecha: str
+    origen: str
+    destino: str
+    producto: str
+    piloto: str
+    no_orden_carga: str
+    peso_entregado: str
+    no_constancia_viaje: str
+    image_path: Optional[str] = None
+    raw_text: Optional[str] = None
+    created_by_user_id: Optional[int] = None
+    created_by_username: Optional[str] = None
     created_at: datetime
 
     class Config:
