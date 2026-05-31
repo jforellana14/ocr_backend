@@ -7,6 +7,11 @@ from fastapi.staticfiles import StaticFiles
 import cloudinary
 import cloudinary.uploader
 import uuid
+from models import Base, Document, Pilot, User
+from schemas import UserCreate, UserResponse, LoginRequest
+from passlib.context import CryptContext
+from jose import jwt, JWTError
+from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 
 from database import SessionLocal, engine
 from models import Base, Document, Pilot
@@ -22,6 +27,63 @@ import os
 Base.metadata.create_all(bind=engine)
 
 app = FastAPI(title="OCR Document System")
+
+SECRET_KEY = os.getenv("SECRET_KEY", "CHANGE_THIS_SECRET")
+ALGORITHM = "HS256"
+
+pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
+security = HTTPBearer()
+
+
+def hash_password(password: str):
+    return pwd_context.hash(password)
+
+
+def verify_password(password: str, password_hash: str):
+    return pwd_context.verify(password, password_hash)
+
+
+def create_token(user: User):
+    payload = {
+        "sub": user.username,
+        "role": user.role,
+        "piloto_nombre": user.piloto_nombre
+    }
+
+    return jwt.encode(payload, SECRET_KEY, algorithm=ALGORITHM)
+
+
+def get_current_user(
+    credentials: HTTPAuthorizationCredentials = Depends(security),
+    db: Session = Depends(get_db)
+):
+    try:
+        payload = jwt.decode(
+            credentials.credentials,
+            SECRET_KEY,
+            algorithms=[ALGORITHM]
+        )
+
+        username = payload.get("sub")
+
+        user = db.query(User).filter(User.username == username).first()
+
+        if not user or user.activo != "SI":
+            raise HTTPException(status_code=401, detail="Invalid user")
+
+        return user
+
+    except JWTError:
+        raise HTTPException(status_code=401, detail="Invalid token")
+
+
+def require_roles(*roles):
+    def checker(user: User = Depends(get_current_user)):
+        if user.role not in roles:
+            raise HTTPException(status_code=403, detail="Forbidden")
+        return user
+
+    return checker
 
 cloudinary.config(
     cloud_name=os.getenv("CLOUDINARY_CLOUD_NAME"),
@@ -262,3 +324,65 @@ async def create_manual_document(
 @app.get("/documents", response_model=list[DocumentResponse])
 def get_documents(db: Session = Depends(get_db)):
     return db.query(Document).all()
+
+@app.post("/auth/login")
+def login(
+    payload: LoginRequest,
+    db: Session = Depends(get_db)
+):
+    user = db.query(User).filter(
+        User.username == payload.username.upper()
+    ).first()
+
+    if not user:
+        raise HTTPException(status_code=401, detail="Invalid credentials")
+
+    if not verify_password(payload.password, user.password_hash):
+        raise HTTPException(status_code=401, detail="Invalid credentials")
+
+    token = create_token(user)
+
+    return {
+        "access_token": token,
+        "token_type": "bearer",
+        "role": user.role,
+        "piloto_nombre": user.piloto_nombre
+    }
+
+
+@app.post("/users", response_model=UserResponse)
+def create_user(
+    payload: UserCreate,
+    db: Session = Depends(get_db)
+):
+    username = payload.username.upper().strip()
+    role = payload.role.upper().strip()
+
+    existing = db.query(User).filter(User.username == username).first()
+
+    if existing:
+        raise HTTPException(status_code=400, detail="User already exists")
+
+    user = User(
+        username=username,
+        password_hash=hash_password(payload.password),
+        role=role,
+        piloto_nombre=payload.piloto_nombre.upper().strip()
+        if payload.piloto_nombre else None,
+        activo="SI"
+    )
+
+    db.add(user)
+    db.commit()
+    db.refresh(user)
+
+    return user
+
+
+@app.get("/me")
+def me(user: User = Depends(get_current_user)):
+    return {
+        "username": user.username,
+        "role": user.role,
+        "piloto_nombre": user.piloto_nombre
+    }

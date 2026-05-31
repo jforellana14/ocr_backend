@@ -5,3 +5,5 @@ python-multipart
 openpyxl
 psycopg2-binary
 cloudinary
+python-jose
+passlib[bcrypt]

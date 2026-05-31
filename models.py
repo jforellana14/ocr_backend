@@ -28,3 +28,14 @@ class Pilot(Base):
     nombre = Column(String, nullable=False, unique=True)
     activo = Column(String, default="SI")
     created_at = Column(DateTime, default=datetime.utcnow)
+
+class User(Base):
+    __tablename__ = "users"
+
+    id = Column(Integer, primary_key=True, index=True)
+    username = Column(String, nullable=False, unique=True, index=True)
+    password_hash = Column(String, nullable=False)
+    role = Column(String, nullable=False)  # ADMIN, ENCARGADO, PILOTO
+    piloto_nombre = Column(String, nullable=True)
+    activo = Column(String, default="SI")
+    created_at = Column(DateTime, default=datetime.utcnow)
