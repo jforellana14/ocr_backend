@@ -52,6 +52,14 @@ def create_token(user: User):
 
     return jwt.encode(payload, SECRET_KEY, algorithm=ALGORITHM)
 
+def get_db():
+    db = SessionLocal()
+
+    try:
+        yield db
+    finally:
+        db.close()
+
 
 def get_current_user(
     credentials: HTTPAuthorizationCredentials = Depends(security),
