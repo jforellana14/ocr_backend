@@ -7,4 +7,3 @@ psycopg2-binary
 cloudinary
 python-jose
 passlib==1.7.4
-bcrypt==4.0.1
