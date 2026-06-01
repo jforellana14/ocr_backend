@@ -20,7 +20,7 @@ from fastapi import HTTPException
 
 from fastapi import UploadFile, File
 import shutil
-
+from fastapi.responses import FileResponse
 from openpyxl import Workbook
 import os
 
@@ -147,24 +147,73 @@ def get_db():
 def root():
     return {"message": "OCR Backend Running"}
     
-@app.post("/documents", response_model=DocumentResponse)
-def create_document(
-    document: DocumentCreate,
-    db: Session = Depends(get_db)
+from typing import Optional
+from fastapi import Query
+
+@app.get("/pilots/filter")
+def get_pilots_filter(
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
 ):
-    db_document = Document(
-        document_type=document.document_type,
-        extracted_name=document.extracted_name,
-        extracted_id=document.extracted_id,
-        extracted_date=document.extracted_date,
-        raw_text=document.raw_text
+    return (
+        db.query(Document.piloto)
+        .distinct()
+        .all()
     )
 
-    db.add(db_document)
-    db.commit()
-    db.refresh(db_document)
+@app.get("/documents", response_model=list[DocumentResponse])
+def get_documents(
+    fecha_desde: Optional[str] = Query(None),
+    fecha_hasta: Optional[str] = Query(None),
+    piloto: Optional[str] = Query(None),
+    origen: Optional[str] = Query(None),
+    destino: Optional[str] = Query(None),
+    producto: Optional[str] = Query(None),
+    sort_by: str = Query("created_at"),
+    sort_order: str = Query("desc"),
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
 
-    return db_document
+    query = db.query(Document)
+
+    if current_user.role == "PILOTO":
+        query = query.filter(
+            Document.created_by_user_id == current_user.id
+        )
+
+    if piloto:
+        query = query.filter(
+            Document.piloto.ilike(f"%{piloto}%")
+        )
+
+    if origen:
+        query = query.filter(
+            Document.origen.ilike(f"%{origen}%")
+        )
+
+    if destino:
+        query = query.filter(
+            Document.destino.ilike(f"%{destino}%")
+        )
+
+    if producto:
+        query = query.filter(
+            Document.producto.ilike(f"%{producto}%")
+        )
+
+    sort_column = getattr(
+        Document,
+        sort_by,
+        Document.created_at
+    )
+
+    if sort_order.lower() == "asc":
+        query = query.order_by(sort_column.asc())
+    else:
+        query = query.order_by(sort_column.desc())
+
+    return query.all()
 
 from sqlalchemy import text
 
@@ -375,6 +424,84 @@ def get_documents(
         )
 
     return query.order_by(Document.created_at.desc()).all()
+
+@app.get("/export/excel")
+def export_excel(
+    piloto: str | None = None,
+    origen: str | None = None,
+    destino: str | None = None,
+    producto: str | None = None,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    query = db.query(Document)
+
+    if current_user.role == "PILOTO":
+        query = query.filter(Document.created_by_user_id == current_user.id)
+
+    if piloto:
+        query = query.filter(Document.piloto.ilike(f"%{piloto}%"))
+
+    if origen:
+        query = query.filter(Document.origen.ilike(f"%{origen}%"))
+
+    if destino:
+        query = query.filter(Document.destino.ilike(f"%{destino}%"))
+
+    if producto:
+        query = query.filter(Document.producto.ilike(f"%{producto}%"))
+
+    documents = query.order_by(Document.created_at.desc()).all()
+
+    wb = Workbook()
+    ws = wb.active
+    ws.title = "Ordenes"
+
+    headers = [
+        "ID",
+        "Fecha",
+        "Origen",
+        "Destino",
+        "Producto",
+        "Piloto",
+        "Usuario",
+        "User ID",
+        "No. Orden de Carga",
+        "Peso Entregado",
+        "No. Constancia de Viaje",
+        "Imagen",
+        "Created At"
+    ]
+
+    ws.append(headers)
+
+    for doc in documents:
+        ws.append([
+            doc.id,
+            doc.fecha,
+            doc.origen,
+            doc.destino,
+            doc.producto,
+            doc.piloto,
+            doc.created_by_username,
+            doc.created_by_user_id,
+            doc.no_orden_carga,
+            doc.peso_entregado,
+            doc.no_constancia_viaje,
+            doc.image_path,
+            str(doc.created_at)
+        ])
+
+    os.makedirs("exports", exist_ok=True)
+
+    file_path = "exports/ordenes_filtradas.xlsx"
+    wb.save(file_path)
+
+    return FileResponse(
+        path=file_path,
+        filename="ordenes_filtradas.xlsx",
+        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+    )
 
 @app.post("/auth/login")
 def login(
