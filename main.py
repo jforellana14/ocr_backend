@@ -31,12 +31,12 @@ from sqlalchemy import text
 with engine.connect() as conn:
     conn.execute(text("""
         ALTER TABLE documents
-        ADD COLUMN IF NOT EXISTS created_by_user_id INTEGER
+        ADD COLUMN IF NOT EXISTS combustible DOUBLE PRECISION;
     """))
 
     conn.execute(text("""
         ALTER TABLE documents
-        ADD COLUMN IF NOT EXISTS created_by_username VARCHAR
+        ADD COLUMN IF NOT EXISTS no_vale VARCHAR;
     """))
 
     conn.commit()
@@ -360,6 +360,8 @@ async def create_manual_document(
     no_orden_carga: str = Form(""),
     peso_entregado: str = Form(""),
     no_constancia_viaje: str = Form(""),
+    combustible: float = Form(0),
+    no_vale: str = Form(""),
     file: UploadFile = File(...),
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user)
@@ -399,6 +401,8 @@ async def create_manual_document(
         no_orden_carga=no_orden_carga.upper(),
         peso_entregado=peso_entregado.upper(),
         no_constancia_viaje=no_constancia_viaje.upper(),
+        combustible=combustible,
+        no_vale=no_vale.upper(),    
         image_path=image_url,
         raw_text="",
         created_by_user_id=current_user.id,
@@ -531,7 +535,8 @@ def login(
 @app.post("/users", response_model=UserResponse)
 def create_user(
     payload: UserCreate,
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_roles("ADMIN"))
 ):
     username = payload.username.upper().strip()
     role = payload.role.upper().strip()

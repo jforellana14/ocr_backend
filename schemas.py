@@ -14,6 +14,8 @@ class DocumentCreate(BaseModel):
     raw_text: Optional[str] = None
     piloto: Optional[str] = None
     image_path: Optional[str] = None
+    combustible: float | None = None
+    no_vale: str | None = None
 
 class DocumentUpdate(BaseModel):
     fecha: Optional[str] = None
@@ -24,6 +26,8 @@ class DocumentUpdate(BaseModel):
     no_orden_carga: Optional[str] = None
     peso_entregado: Optional[str] = None
     no_constancia_viaje: Optional[str] = None
+    combustible: Optional[float] = None
+    no_vale: Optional[str] = None
 
 class PilotCreate(BaseModel):
     nombre: str
