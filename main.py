@@ -319,7 +319,8 @@ def update_document(
 @app.delete("/documents/{document_id}")
 def delete_document(
     document_id: int,
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
 ):
     if current_user.role == "PILOTO":
         raise HTTPException(status_code=403, detail="Pilots cannot delete documents")
@@ -334,21 +335,6 @@ def delete_document(
 
     return {"message": "Document deleted successfully"}
 
-
-@app.get("/pilots")
-def get_pilots(db: Session = Depends(get_db)):
-    pilots = (
-        db.query(Document.piloto)
-        .filter(Document.piloto.isnot(None))
-        .distinct()
-        .all()
-    )
-
-    return [
-        pilot[0]
-        for pilot in pilots
-        if pilot[0] and pilot[0].strip()
-    ]
 
 @app.post("/documents/manual", response_model=DocumentResponse)
 async def create_manual_document(
@@ -415,20 +401,6 @@ async def create_manual_document(
 
     return new_document
 
-@app.get("/documents", response_model=list[DocumentResponse])
-def get_documents(
-    db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user)
-):
-    query = db.query(Document)
-
-    if current_user.role == "PILOTO":
-        query = query.filter(
-            Document.created_by_user_id == current_user.id
-        )
-
-    return query.order_by(Document.created_at.desc()).all()
-
 @app.get("/export/excel")
 def export_excel(
     piloto: str | None = None,
@@ -472,6 +444,8 @@ def export_excel(
         "User ID",
         "No. Orden de Carga",
         "Peso Entregado",
+        "Combustible (galones)",
+        "No. Vale",
         "No. Constancia de Viaje",
         "Imagen",
         "Created At"
@@ -491,6 +465,8 @@ def export_excel(
             doc.created_by_user_id,
             doc.no_orden_carga,
             doc.peso_entregado,
+            doc.combustible,
+            doc.no_vale,
             doc.no_constancia_viaje,
             doc.image_path,
             str(doc.created_at)

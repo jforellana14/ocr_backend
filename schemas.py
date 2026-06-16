@@ -52,6 +52,8 @@ class DocumentResponse(BaseModel):
     no_orden_carga: str
     peso_entregado: str
     no_constancia_viaje: str
+    combustible: Optional[float] = None
+    no_vale: Optional[str] = None
     image_path: Optional[str] = None
     raw_text: Optional[str] = None
     created_by_user_id: Optional[int] = None
