@@ -27,6 +27,9 @@ class DocumentUpdate(BaseModel):
     peso_entregado: Optional[str] = None
     no_constancia_viaje: Optional[str] = None
     combustible: Optional[float] = None
+    costo_viaje: Optional[float] = None
+    bonificacion_piloto: Optional[float] = None
+    distancia_viaje: Optional[float] = None
     no_vale: Optional[str] = None
 
 class PilotCreate(BaseModel):
@@ -53,12 +56,41 @@ class DocumentResponse(BaseModel):
     peso_entregado: str
     no_constancia_viaje: str
     combustible: Optional[float] = None
+    costo_viaje: Optional[float] = None
+    bonificacion_piloto: Optional[float] = None
+    distancia_viaje: Optional[float] = None
     no_vale: Optional[str] = None
     image_path: Optional[str] = None
     raw_text: Optional[str] = None
     created_by_user_id: Optional[int] = None
     created_by_username: Optional[str] = None
     created_at: datetime
+
+    class Config:
+        from_attributes = True
+
+class RouteCreate(BaseModel):
+    nombre: str
+    origen: str
+    destino: str
+    distancia_km: Optional[float] = None
+    costo_viaje: Optional[float] = None
+    bonificacion_piloto: Optional[float] = None
+    tiempo_estimado: Optional[str] = None
+    cliente: Optional[str] = None
+
+
+class RouteResponse(BaseModel):
+    id: int
+    nombre: str
+    origen: str
+    destino: str
+    distancia_km: Optional[float] = None
+    costo_viaje: Optional[float] = None
+    bonificacion_piloto: Optional[float] = None
+    tiempo_estimado: Optional[str] = None
+    cliente: Optional[str] = None
+    activo: str
 
     class Config:
         from_attributes = True

@@ -7,14 +7,13 @@ from fastapi.staticfiles import StaticFiles
 import cloudinary
 import cloudinary.uploader
 import uuid
-from models import Base, Document, Pilot, User
-from schemas import UserCreate, UserResponse, LoginRequest
+from models import Base, Document, Pilot, User, Route
+from schemas import UserCreate, UserResponse, LoginRequest, RouteCreate, RouteResponse
 from passlib.context import CryptContext
 from jose import jwt, JWTError
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 
 from database import SessionLocal, engine
-from models import Base, Document, Pilot
 from schemas import DocumentCreate, DocumentResponse, DocumentUpdate, PilotCreate, PilotResponse
 from fastapi import HTTPException
 
@@ -37,6 +36,21 @@ with engine.connect() as conn:
     conn.execute(text("""
         ALTER TABLE documents
         ADD COLUMN IF NOT EXISTS no_vale VARCHAR;
+    """))
+
+    conn.execute(text("""
+        ALTER TABLE documents
+        ADD COLUMN IF NOT EXISTS costo_viaje DOUBLE PRECISION;
+    """))
+
+    conn.execute(text("""
+        ALTER TABLE documents
+        ADD COLUMN IF NOT EXISTS bonificacion_piloto DOUBLE PRECISION;
+    """))
+
+    conn.execute(text("""
+        ALTER TABLE documents
+        ADD COLUMN IF NOT EXISTS distancia_viaje DOUBLE PRECISION;
     """))
 
     conn.commit()
@@ -537,6 +551,94 @@ def create_user(
 
     return user
 
+@app.post("/routes", response_model=RouteResponse)
+def create_route(
+    payload: RouteCreate,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_roles("ADMIN", "ENCARGADO"))
+):
+    route = Route(
+        nombre=payload.nombre.upper().strip(),
+        origen=payload.origen.upper().strip(),
+        destino=payload.destino.upper().strip(),
+        distancia_km=payload.distancia_km,
+        costo_viaje=payload.costo_viaje,
+        bonificacion_piloto=payload.bonificacion_piloto,
+        tiempo_estimado=payload.tiempo_estimado.upper().strip()
+        if payload.tiempo_estimado else None,
+        cliente=payload.cliente.upper().strip()
+        if payload.cliente else None,
+        activo="SI"
+    )
+
+    db.add(route)
+    db.commit()
+    db.refresh(route)
+
+    return route
+
+
+@app.get("/routes", response_model=list[RouteResponse])
+def get_routes(
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_roles("ADMIN", "ENCARGADO"))
+):
+    return (
+        db.query(Route)
+        .filter(Route.activo == "SI")
+        .order_by(Route.nombre.asc())
+        .all()
+    )
+
+
+@app.put("/routes/{route_id}", response_model=RouteResponse)
+def update_route(
+    route_id: int,
+    payload: RouteCreate,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_roles("ADMIN", "ENCARGADO"))
+):
+    route = db.query(Route).filter(Route.id == route_id).first()
+
+    if not route:
+        raise HTTPException(status_code=404, detail="Route not found")
+
+    route.nombre = payload.nombre.upper().strip()
+    route.origen = payload.origen.upper().strip()
+    route.destino = payload.destino.upper().strip()
+    route.distancia_km = payload.distancia_km
+    route.costo_viaje = payload.costo_viaje
+    route.bonificacion_piloto = payload.bonificacion_piloto
+    route.tiempo_estimado = (
+        payload.tiempo_estimado.upper().strip()
+        if payload.tiempo_estimado else None
+    )
+    route.cliente = (
+        payload.cliente.upper().strip()
+        if payload.cliente else None
+    )
+
+    db.commit()
+    db.refresh(route)
+
+    return route
+
+
+@app.delete("/routes/{route_id}")
+def delete_route(
+    route_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_roles("ADMIN", "ENCARGADO"))
+):
+    route = db.query(Route).filter(Route.id == route_id).first()
+
+    if not route:
+        raise HTTPException(status_code=404, detail="Route not found")
+
+    route.activo = "NO"
+    db.commit()
+
+    return {"message": "Route disabled successfully"}
 
 @app.get("/me")
 def me(user: User = Depends(get_current_user)):

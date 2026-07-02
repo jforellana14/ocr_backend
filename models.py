@@ -27,6 +27,21 @@ class Document(Base):
     raw_text = Column(Text, nullable=True)
     created_at = Column(DateTime, default=datetime.utcnow)
 
+class Route(Base):
+    __tablename__ = "routes"
+
+    id = Column(Integer, primary_key=True, index=True)
+    nombre = Column(String, nullable=False)
+    origen = Column(String, nullable=False)
+    destino = Column(String, nullable=False)
+    distancia_km = Column(Float, nullable=True)
+    costo_viaje = Column(Float, nullable=True)
+    bonificacion_piloto = Column(Float, nullable=True)
+    tiempo_estimado = Column(String, nullable=True)
+    cliente = Column(String, nullable=True)
+    activo = Column(String, default="SI")
+    created_at = Column(DateTime, default=datetime.utcnow)
+
 class Pilot(Base):
     __tablename__ = "pilots"
 
