@@ -7,8 +7,8 @@ from fastapi.staticfiles import StaticFiles
 import cloudinary
 import cloudinary.uploader
 import uuid
-from models import Base, Document, Pilot, User, Route
-from schemas import UserCreate, UserResponse, LoginRequest, RouteCreate, RouteResponse
+from models import Base, Document, Pilot, User, Route, Client, Truck, FinancialSettings
+from schemas import UserCreate, UserResponse, LoginRequest, RouteCreate, RouteResponse, ClientCreate, ClientResponse, TruckCreate, TruckResponse, FinancialSettingsCreate, FinancialSettingsResponse
 from passlib.context import CryptContext
 from jose import jwt, JWTError
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
@@ -51,6 +51,21 @@ with engine.connect() as conn:
     conn.execute(text("""
         ALTER TABLE documents
         ADD COLUMN IF NOT EXISTS distancia_viaje DOUBLE PRECISION;
+    """))
+
+    conn.execute(text("""
+        ALTER TABLE documents
+        ADD COLUMN IF NOT EXISTS cliente_id INTEGER;
+    """))
+
+    conn.execute(text("""
+        ALTER TABLE documents
+        ADD COLUMN IF NOT EXISTS truck_id INTEGER;
+    """))
+
+    conn.execute(text("""
+        ALTER TABLE documents
+        ADD COLUMN IF NOT EXISTS route_id INTEGER;
     """))
 
     conn.commit()
@@ -639,6 +654,191 @@ def delete_route(
     db.commit()
 
     return {"message": "Route disabled successfully"}
+
+@app.post("/clients", response_model=ClientResponse)
+def create_client(
+    payload: ClientCreate,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_roles("ADMIN", "ENCARGADO"))
+):
+    client = Client(
+        nombre=payload.nombre.upper().strip(),
+        nit=payload.nit.upper().strip() if payload.nit else None,
+        telefono=payload.telefono,
+        email=payload.email,
+        direccion=payload.direccion.upper().strip() if payload.direccion else None,
+        contacto=payload.contacto.upper().strip() if payload.contacto else None,
+        activo="SI"
+    )
+
+    db.add(client)
+    db.commit()
+    db.refresh(client)
+
+    return client
+
+
+@app.get("/clients", response_model=list[ClientResponse])
+def get_clients(
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_roles("ADMIN", "ENCARGADO"))
+):
+    return (
+        db.query(Client)
+        .filter(Client.activo == "SI")
+        .order_by(Client.nombre.asc())
+        .all()
+    )
+
+
+@app.put("/clients/{client_id}", response_model=ClientResponse)
+def update_client(
+    client_id: int,
+    payload: ClientCreate,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_roles("ADMIN", "ENCARGADO"))
+):
+    client = db.query(Client).filter(Client.id == client_id).first()
+
+    if not client:
+        raise HTTPException(status_code=404, detail="Client not found")
+
+    client.nombre = payload.nombre.upper().strip()
+    client.nit = payload.nit.upper().strip() if payload.nit else None
+    client.telefono = payload.telefono
+    client.email = payload.email
+    client.direccion = payload.direccion.upper().strip() if payload.direccion else None
+    client.contacto = payload.contacto.upper().strip() if payload.contacto else None
+
+    db.commit()
+    db.refresh(client)
+
+    return client
+
+
+@app.delete("/clients/{client_id}")
+def delete_client(
+    client_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_roles("ADMIN", "ENCARGADO"))
+):
+    client = db.query(Client).filter(Client.id == client_id).first()
+
+    if not client:
+        raise HTTPException(status_code=404, detail="Client not found")
+
+    client.activo = "NO"
+    db.commit()
+
+    return {"message": "Client disabled successfully"}
+
+@app.post("/trucks", response_model=TruckResponse)
+def create_truck(
+    payload: TruckCreate,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_roles("ADMIN", "ENCARGADO"))
+):
+    truck = Truck(**payload.dict())
+    db.add(truck)
+    db.commit()
+    db.refresh(truck)
+    return truck
+
+
+@app.get("/trucks", response_model=list[TruckResponse])
+def get_trucks(
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_roles("ADMIN", "ENCARGADO"))
+):
+    return (
+        db.query(Truck)
+        .filter(Truck.estado != "INACTIVO")
+        .order_by(Truck.codigo.asc())
+        .all()
+    )
+
+
+@app.put("/trucks/{truck_id}", response_model=TruckResponse)
+def update_truck(
+    truck_id: int,
+    payload: TruckCreate,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_roles("ADMIN", "ENCARGADO"))
+):
+    truck = db.query(Truck).filter(Truck.id == truck_id).first()
+
+    if not truck:
+        raise HTTPException(status_code=404, detail="Truck not found")
+
+    data = payload.dict(exclude_unset=True)
+
+    for key, value in data.items():
+        if isinstance(value, str):
+            setattr(truck, key, value.upper())
+        else:
+            setattr(truck, key, value)
+
+    db.commit()
+    db.refresh(truck)
+
+    return truck
+
+
+@app.delete("/trucks/{truck_id}")
+def delete_truck(
+    truck_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_roles("ADMIN", "ENCARGADO"))
+):
+    truck = db.query(Truck).filter(Truck.id == truck_id).first()
+
+    if not truck:
+        raise HTTPException(status_code=404, detail="Truck not found")
+
+    truck.estado = "INACTIVO"
+    db.commit()
+
+    return {"message": "Truck disabled successfully"}
+
+@app.get("/financial/settings", response_model=FinancialSettingsResponse)
+def get_financial_settings(
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_roles("ADMIN", "ENCARGADO"))
+):
+    settings = db.query(FinancialSettings).first()
+
+    if not settings:
+        settings = FinancialSettings()
+        db.add(settings)
+        db.commit()
+        db.refresh(settings)
+
+    return settings
+
+
+@app.put("/financial/settings", response_model=FinancialSettingsResponse)
+def update_financial_settings(
+    payload: FinancialSettingsCreate,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_roles("ADMIN"))
+):
+    settings = db.query(FinancialSettings).first()
+
+    if not settings:
+        settings = FinancialSettings()
+        db.add(settings)
+        db.commit()
+        db.refresh(settings)
+
+    data = payload.dict(exclude_unset=True)
+
+    for key, value in data.items():
+        setattr(settings, key, value)
+
+    db.commit()
+    db.refresh(settings)
+
+    return settings
 
 @app.get("/me")
 def me(user: User = Depends(get_current_user)):
