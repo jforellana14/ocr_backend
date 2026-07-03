@@ -172,7 +172,6 @@ class TruckCreate(BaseModel):
 
 class TruckResponse(TruckCreate):
     id: int
-    activo: Optional[str] = None
     created_at: Optional[datetime] = None
 
     class Config:

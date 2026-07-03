@@ -92,48 +92,30 @@ class Truck(Base):
     id = Column(Integer, primary_key=True, index=True)
 
     codigo = Column(String, unique=True, index=True)
-
-    placa = Column(String, unique=True)
+    placa = Column(String, unique=True, index=True)
 
     marca = Column(String)
-
     modelo = Column(String)
-
     anio = Column(Integer)
-
     vin = Column(String)
-
     motor = Column(String)
-
     color = Column(String)
 
     capacidad = Column(Float)
-
     kilometraje_actual = Column(Float, default=0)
-
     consumo_esperado = Column(Float)
 
     piloto_asignado = Column(String)
-
     estado = Column(String, default="ACTIVO")
 
     fecha_compra = Column(Date)
-
     valor_compra = Column(Float)
-
     valor_residual = Column(Float)
-
     vida_util_anios = Column(Integer)
-
-    metodo_depreciacion = Column(
-        String,
-        default="LINEA RECTA"
-    )
+    metodo_depreciacion = Column(String, default="LINEA RECTA")
 
     proveedor = Column(String)
-
     seguro = Column(Float)
-
     observaciones = Column(Text)
 
     created_at = Column(DateTime, default=datetime.utcnow)

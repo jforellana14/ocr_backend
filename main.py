@@ -738,10 +738,36 @@ def create_truck(
     db: Session = Depends(get_db),
     current_user: User = Depends(require_roles("ADMIN", "ENCARGADO"))
 ):
-    truck = Truck(**payload.dict())
+    truck = Truck(
+        codigo=payload.codigo.upper().strip() if payload.codigo else None,
+        placa=payload.placa.upper().strip() if payload.placa else None,
+        marca=payload.marca.upper().strip() if payload.marca else None,
+        modelo=payload.modelo.upper().strip() if payload.modelo else None,
+        anio=payload.anio,
+        vin=payload.vin.upper().strip() if payload.vin else None,
+        motor=payload.motor.upper().strip() if payload.motor else None,
+        color=payload.color.upper().strip() if payload.color else None,
+        capacidad=payload.capacidad,
+        kilometraje_actual=payload.kilometraje_actual,
+        consumo_esperado=payload.consumo_esperado,
+        piloto_asignado=payload.piloto_asignado.upper().strip()
+        if payload.piloto_asignado else None,
+        estado=payload.estado.upper().strip() if payload.estado else "ACTIVO",
+        fecha_compra=payload.fecha_compra,
+        valor_compra=payload.valor_compra,
+        valor_residual=payload.valor_residual,
+        vida_util_anios=payload.vida_util_anios,
+        metodo_depreciacion=payload.metodo_depreciacion.upper().strip()
+        if payload.metodo_depreciacion else "LINEA RECTA",
+        proveedor=payload.proveedor.upper().strip() if payload.proveedor else None,
+        seguro=payload.seguro,
+        observaciones=payload.observaciones
+    )
+
     db.add(truck)
     db.commit()
     db.refresh(truck)
+
     return truck
 
 
@@ -774,7 +800,7 @@ def update_truck(
 
     for key, value in data.items():
         if isinstance(value, str):
-            setattr(truck, key, value.upper())
+            setattr(truck, key, value.upper().strip())
         else:
             setattr(truck, key, value)
 
