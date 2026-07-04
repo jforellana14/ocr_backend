@@ -1,6 +1,6 @@
 from pydantic import BaseModel
 from typing import Optional
-from datetime import datetime
+from datetime import datetime, date
 
 
 class DocumentCreate(BaseModel):
@@ -195,3 +195,6 @@ class FinancialSettingsResponse(FinancialSettingsCreate):
 
     class Config:
         from_attributes = True
+
+TruckCreate.model_rebuild()
+TruckResponse.model_rebuild()
