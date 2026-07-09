@@ -7,6 +7,7 @@ from fastapi.staticfiles import StaticFiles
 import cloudinary
 import cloudinary.uploader
 import uuid
+from datetime import datetime
 from models import Base, Document, Pilot, User, Route, Client, Truck, FinancialSettings, FuelPrice, VehicleType, ChargeType
 from schemas import UserCreate, UserResponse, LoginRequest, RouteCreate, RouteResponse, ClientCreate, ClientResponse, TruckCreate, TruckResponse, FinancialSettingsCreate, FinancialSettingsResponse, FuelPriceCreate, FuelPriceResponse, VehicleTypeCreate, VehicleTypeResponse, ChargeTypeCreate, ChargeTypeResponse
 from passlib.context import CryptContext
@@ -73,6 +74,36 @@ with engine.connect() as conn:
     conn.execute(text("""
         ALTER TABLE trucks
         ADD COLUMN IF NOT EXISTS vehicle_type_id INTEGER;
+    """))
+
+    conn.execute(text("""
+        ALTER TABLE documents
+        ADD COLUMN IF NOT EXISTS cliente_id INTEGER;
+    """))
+
+    conn.execute(text("""
+        ALTER TABLE documents
+        ADD COLUMN IF NOT EXISTS truck_id INTEGER;
+    """))
+
+    conn.execute(text("""
+        ALTER TABLE documents
+        ADD COLUMN IF NOT EXISTS route_id INTEGER;
+    """))
+
+    conn.execute(text("""
+        ALTER TABLE documents
+        ADD COLUMN IF NOT EXISTS no_vale VARCHAR;
+    """))
+
+    conn.execute(text("""
+        ALTER TABLE documents
+        ADD COLUMN IF NOT EXISTS distancia_viaje DOUBLE PRECISION;
+    """))
+
+    conn.execute(text("""
+        ALTER TABLE documents
+        ADD COLUMN IF NOT EXISTS bonificacion_piloto DOUBLE PRECISION;
     """))
 
     conn.commit()
@@ -395,6 +426,9 @@ async def create_manual_document(
     no_constancia_viaje: str = Form(""),
     combustible_consumido: float = Form(0),
     no_vale: str = Form(""),
+    cliente_id: int | None = Form(None),
+    truck_id: int | None = Form(None),
+    route_id: int | None = Form(None),
     file: UploadFile = File(...),
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user)
@@ -431,15 +465,19 @@ async def create_manual_document(
         truck = db.query(Truck).filter(Truck.id == truck_id).first()
 
         if truck and truck.vehicle_type_id:
-            pricing = PricingEngine.calculate(
-                db=db,
-                fecha=fecha,
-                client_id=cliente_id,
-                route_id=route_id,
-                vehicle_type_id=truck.vehicle_type_id,
-                charge_type_id=1,
-                peso=float(peso_entregado)
-            )
+            try:
+                pricing_date = datetime.strptime(fecha[:10], "%Y-%m-%d").date()
+                pricing = PricingEngine.calculate(
+                    db=db,
+                    fecha=pricing_date,
+                    client_id=cliente_id,
+                    route_id=route_id,
+                    vehicle_type_id=truck.vehicle_type_id,
+                    charge_type_id=1,
+                    peso=float(peso_entregado)
+                )
+            except Exception as pricing_error:
+                print(f"Pricing skipped for document: {pricing_error}")
 
     new_document = Document(
         fecha=fecha.upper(),

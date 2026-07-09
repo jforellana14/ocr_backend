@@ -15,7 +15,8 @@ class PricingSelector:
 
         fuel = (
             db.query(FuelPrice)
-            .filter(FuelPrice.fecha == fecha)
+            .filter(FuelPrice.fecha <= fecha)
+            .order_by(FuelPrice.fecha.desc())
             .first()
         )
 
@@ -36,10 +37,9 @@ class PricingSelector:
         fecha
     ):
 
-        plan = (
+        base_query = (
             db.query(RatePlan)
             .filter(RatePlan.estado == "ACTIVO")
-            .filter(RatePlan.client_id == client_id)
             .filter(RatePlan.route_id == route_id)
             .filter(RatePlan.vehicle_type_id == vehicle_type_id)
             .filter(RatePlan.charge_type_id == charge_type_id)
@@ -48,8 +48,20 @@ class PricingSelector:
                 (RatePlan.fecha_fin == None) |
                 (RatePlan.fecha_fin >= fecha)
             )
+        )
+
+        plan = (
+            base_query
+            .filter(RatePlan.client_id == client_id)
             .first()
         )
+
+        if not plan:
+            plan = (
+                base_query
+                .filter(RatePlan.client_id == None)
+                .first()
+            )
 
         if not plan:
             raise RatePlanNotFoundError(
