@@ -21,7 +21,8 @@ from fastapi import UploadFile, File
 import shutil
 from fastapi.responses import FileResponse
 from openpyxl import Workbook
-from app.routers import vehicle_types, charge_types, fuel_prices, rate_plans, rate_plan_details, PricingEngine, expense_categories, expenses
+from app.pricing.engine import PricingEngine
+from app.routers import vehicle_types, charge_types, fuel_prices, rate_plans, rate_plan_details, expense_categories, expenses, reports
 import os
 
 Base.metadata.create_all(bind=engine)
@@ -85,6 +86,7 @@ app.include_router(rate_plans.router)
 app.include_router(rate_plan_details.router)
 app.include_router(expense_categories.router)
 app.include_router(expenses.router)
+app.include_router(reports.router)
 
 SECRET_KEY = os.getenv("SECRET_KEY", "CHANGE_THIS_SECRET")
 ALGORITHM = "HS256"
