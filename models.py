@@ -328,3 +328,23 @@ class Expense(Base):
 
     category = relationship("ExpenseCategory")
     truck = relationship("Truck")
+
+class TariffImportHistory(Base):
+    __tablename__ = "tariff_import_history"
+
+    id = Column(Integer, primary_key=True, index=True)
+
+    archivo = Column(String, nullable=True)
+    usuario = Column(String, nullable=True)
+    version = Column(String, default="2026")
+
+    filas = Column(Integer, default=0)
+    rutas_creadas = Column(Integer, default=0)
+    tarifarios_creados = Column(Integer, default=0)
+    rangos_creados = Column(Integer, default=0)
+    viajes_actualizados = Column(Integer, default=0)
+
+    errores = Column(Text, nullable=True)
+    estado = Column(String, default="COMPLETADO")
+
+    fecha_importacion = Column(DateTime, default=datetime.utcnow)

@@ -300,3 +300,20 @@ class ExpenseResponse(ExpenseCreate):
 
     class Config:
         from_attributes = True
+
+class TariffImportHistoryResponse(BaseModel):
+    id: int
+    archivo: Optional[str] = None
+    usuario: Optional[str] = None
+    version: Optional[str] = None
+    filas: int
+    rutas_creadas: int
+    tarifarios_creados: int
+    rangos_creados: int
+    viajes_actualizados: int
+    errores: Optional[str] = None
+    estado: str
+    fecha_importacion: datetime
+
+    class Config:
+        from_attributes = True
