@@ -5,7 +5,7 @@ from database import get_db
 from models import User
 from schemas import VehicleTypeCreate, VehicleTypeResponse
 from auth import get_current_user, require_roles
-from services.vehicle_type_service import VehicleTypeService
+from app.services.vehicle_type_service import VehicleTypeService
 
 
 router = APIRouter(
