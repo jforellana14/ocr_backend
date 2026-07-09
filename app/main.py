@@ -21,7 +21,7 @@ from fastapi import UploadFile, File
 import shutil
 from fastapi.responses import FileResponse
 from openpyxl import Workbook
-from app.routers import vehicle_types, charge_types, fuel_prices, rate_plans, rate_plan_details, PricingEngine, expense_categories, expenses
+from routers import vehicle_types
 import os
 
 Base.metadata.create_all(bind=engine)
@@ -31,47 +31,42 @@ from sqlalchemy import text
 with engine.connect() as conn:
     conn.execute(text("""
         ALTER TABLE documents
-        ADD COLUMN IF NOT EXISTS combustible_consumido DOUBLE PRECISION;
+        ADD COLUMN IF NOT EXISTS combustible DOUBLE PRECISION;
     """))
 
     conn.execute(text("""
         ALTER TABLE documents
-        ADD COLUMN IF NOT EXISTS fuel_price_id INTEGER;
+        ADD COLUMN IF NOT EXISTS no_vale VARCHAR;
     """))
 
     conn.execute(text("""
         ALTER TABLE documents
-        ADD COLUMN IF NOT EXISTS fuel_price DOUBLE PRECISION;
+        ADD COLUMN IF NOT EXISTS costo_viaje DOUBLE PRECISION;
     """))
 
     conn.execute(text("""
         ALTER TABLE documents
-        ADD COLUMN IF NOT EXISTS rate_plan_id INTEGER;
+        ADD COLUMN IF NOT EXISTS bonificacion_piloto DOUBLE PRECISION;
     """))
 
     conn.execute(text("""
         ALTER TABLE documents
-        ADD COLUMN IF NOT EXISTS rate_plan_detail_id INTEGER;
+        ADD COLUMN IF NOT EXISTS distancia_viaje DOUBLE PRECISION;
     """))
 
     conn.execute(text("""
         ALTER TABLE documents
-        ADD COLUMN IF NOT EXISTS precio_unitario DOUBLE PRECISION;
+        ADD COLUMN IF NOT EXISTS cliente_id INTEGER;
     """))
 
     conn.execute(text("""
         ALTER TABLE documents
-        ADD COLUMN IF NOT EXISTS precio_total DOUBLE PRECISION;
+        ADD COLUMN IF NOT EXISTS truck_id INTEGER;
     """))
 
     conn.execute(text("""
         ALTER TABLE documents
-        ADD COLUMN IF NOT EXISTS pricing_version INTEGER DEFAULT 1;
-    """))
-
-    conn.execute(text("""
-        ALTER TABLE trucks
-        ADD COLUMN IF NOT EXISTS vehicle_type_id INTEGER;
+        ADD COLUMN IF NOT EXISTS route_id INTEGER;
     """))
 
     conn.commit()
@@ -79,12 +74,6 @@ with engine.connect() as conn:
 app = FastAPI(title="OCR Document System")
 
 app.include_router(vehicle_types.router)
-app.include_router(charge_types.router)
-app.include_router(fuel_prices.router)
-app.include_router(rate_plans.router)
-app.include_router(rate_plan_details.router)
-app.include_router(expense_categories.router)
-app.include_router(expenses.router)
 
 SECRET_KEY = os.getenv("SECRET_KEY", "CHANGE_THIS_SECRET")
 ALGORITHM = "HS256"
@@ -389,7 +378,7 @@ async def create_manual_document(
     no_orden_carga: str = Form(""),
     peso_entregado: str = Form(""),
     no_constancia_viaje: str = Form(""),
-    combustible_consumido: float = Form(0),
+    combustible: float = Form(0),
     no_vale: str = Form(""),
     file: UploadFile = File(...),
     db: Session = Depends(get_db),
@@ -421,22 +410,6 @@ async def create_manual_document(
     if current_user.role == "PILOTO":
         final_piloto = current_user.piloto_nombre.upper().strip()
 
-    pricing = None
-
-    if cliente_id and truck_id and route_id and peso_entregado:
-        truck = db.query(Truck).filter(Truck.id == truck_id).first()
-
-        if truck and truck.vehicle_type_id:
-            pricing = PricingEngine.calculate(
-                db=db,
-                fecha=fecha,
-                client_id=cliente_id,
-                route_id=route_id,
-                vehicle_type_id=truck.vehicle_type_id,
-                charge_type_id=1,
-                peso=float(peso_entregado)
-            )
-
     new_document = Document(
         fecha=fecha.upper(),
         origen=origen.upper(),
@@ -446,19 +419,7 @@ async def create_manual_document(
         no_orden_carga=no_orden_carga.upper(),
         peso_entregado=peso_entregado.upper(),
         no_constancia_viaje=no_constancia_viaje.upper(),
-        combustible_consumido=combustible_consumido,
-        cliente_id=cliente_id,
-        truck_id=truck_id,
-        route_id=route_id,
-
-        fuel_price_id=pricing.fuel_price_id if pricing else None,
-        fuel_price=pricing.fuel_price if pricing else None,
-        rate_plan_id=pricing.rate_plan_id if pricing else None,
-        rate_plan_detail_id=pricing.rate_plan_detail_id if pricing else None,
-        precio_unitario=pricing.precio_unitario if pricing else None,
-        precio_total=pricing.precio_total if pricing else None,
-        bonificacion_piloto=pricing.bonificacion if pricing else None,
-        pricing_version=pricing.version if pricing else 1,
+        combustible=combustible,
         no_vale=no_vale.upper(),    
         image_path=image_url,
         raw_text="",
@@ -536,7 +497,7 @@ def export_excel(
             doc.created_by_user_id,
             doc.no_orden_carga,
             doc.peso_entregado,
-            doc.combustible_consumido,
+            doc.combustible,
             doc.no_vale,
             doc.no_constancia_viaje,
             doc.image_path,
