@@ -1,7 +1,7 @@
 from datetime import datetime
 from sqlalchemy.orm import Session
 
-from models import Route, RatePlan, RatePlanDetail, Document, FuelPrice
+from models import Route, RatePlan, RatePlanDetail, Document, FuelPrice, VehicleType, ChargeType
 
 
 FUEL_RANGES = [
@@ -19,6 +19,50 @@ FUEL_RANGES = [
 def normalize(value):
     return (value or "").strip().upper()
 
+def get_or_create_vehicle_type(db: Session):
+    item = (
+        db.query(VehicleType)
+        .filter(VehicleType.nombre == "GRANEL")
+        .first()
+    )
+
+    if item:
+        return item
+
+    item = VehicleType(
+        nombre="GRANEL",
+        descripcion="Tipo temporal para tarifario granel",
+        activo="SI"
+    )
+
+    db.add(item)
+    db.commit()
+    db.refresh(item)
+
+    return item
+
+
+def get_or_create_charge_type(db: Session):
+    item = (
+        db.query(ChargeType)
+        .filter(ChargeType.nombre == "POR QUINTAL")
+        .first()
+    )
+
+    if item:
+        return item
+
+    item = ChargeType(
+        nombre="POR QUINTAL",
+        descripcion="Cobro por quintal entregado",
+        activo="SI"
+    )
+
+    db.add(item)
+    db.commit()
+    db.refresh(item)
+
+    return item
 
 def parse_date(value):
     if not value:
@@ -58,12 +102,18 @@ def import_tariff_rows_and_update_documents(
     vehicle_type_id: int,
     charge_type_id: int = 1,
     force_recalculate: bool = False
+    
 ):
     created_routes = 0
     created_plans = 0
     created_details = 0
     updated_documents = 0
     failed_documents = []
+    vehicle_type = get_or_create_vehicle_type(db)
+    charge_type = get_or_create_charge_type(db)
+
+    vehicle_type_id = vehicle_type.id
+    charge_type_id = charge_type.id
 
     for row in rows:
         origen = normalize(row["origen"])
