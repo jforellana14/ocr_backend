@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 import logging
 import sys
 from pathlib import Path
@@ -10,8 +12,12 @@ if str(ROOT) not in sys.path:
 
 
 from database import SessionLocal
-from app.services.fuel_price_sync_service import FuelPriceSyncService
-from app.services.mem_fuel_price_provider import MemFuelPriceProvider
+from app.services.fuel_price_sync_service import (
+    FuelPriceSyncService,
+)
+from app.services.mem_fuel_price_provider import (
+    MemFuelPriceProvider,
+)
 
 
 logging.basicConfig(
@@ -20,37 +26,68 @@ logging.basicConfig(
 )
 
 
-def main() -> None:
+def main() -> int:
     db = SessionLocal()
 
     try:
-        result = MemFuelPriceProvider.fetch_current_diesel_price()
+        logging.info(
+            "Consultando precio del diésel mediante ScrapingBee."
+        )
+
+        result = (
+            MemFuelPriceProvider
+            .fetch_current_diesel_price()
+        )
+
+        notes = (
+            "Sincronización automática mediante ScrapingBee. "
+            f"Fuente oficial: {result.fuente}. "
+            f"Vigencia: "
+            f"{result.vigencia_inicio or 'N/D'} al "
+            f"{result.vigencia_fin or 'N/D'}."
+        )
 
         item = FuelPriceSyncService.upsert_price(
             db=db,
             price_date=result.fecha,
             price=result.precio_diesel,
-            source="MEM",
-            notes=f"Sincronización automática: {result.fuente}",
+            source="MEM / SCRAPINGBEE",
+            notes=notes,
         )
 
         logging.info(
-            "Precio guardado: fecha=%s precio=Q%.2f id=%s",
+            "Precio guardado correctamente: "
+            "fecha=%s precio=Q%.2f id=%s",
             item.fecha,
             item.precio_galon,
             item.id,
         )
 
+        return 0
+
+    except RuntimeError as exc:
+        db.rollback()
+
+        logging.error(
+            "No fue posible actualizar el diésel: %s",
+            exc,
+        )
+
+        return 1
+
     except Exception:
         db.rollback()
+
         logging.exception(
-            "Falló la actualización automática del combustible."
+            "Falló la actualización automática "
+            "del combustible."
         )
-        raise
+
+        return 1
 
     finally:
         db.close()
 
 
 if __name__ == "__main__":
-    main()
+    raise SystemExit(main())
