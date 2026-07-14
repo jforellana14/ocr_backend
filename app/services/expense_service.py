@@ -2,7 +2,7 @@ from fastapi import HTTPException
 from sqlalchemy.orm import Session
 
 from models import Expense, ExpenseCategory
-from schemas import ExpenseCreate
+from schemas import ExpenseCreate, ExpenseUpdate
 from app.repositories.expense_repository import ExpenseRepository
 
 
@@ -73,6 +73,32 @@ class ExpenseService:
             db,
             item
         )
+
+
+    @staticmethod
+    def update(db: Session, item_id: int, payload: ExpenseUpdate):
+        item = ExpenseRepository.get_by_id(db, item_id)
+        if not item or item.activo != "SI":
+            raise HTTPException(status_code=404, detail="Gasto no encontrado.")
+
+        data = payload.model_dump(exclude_unset=True)
+        category_id = data.get("expense_category_id", item.expense_category_id)
+        category = db.query(ExpenseCategory).filter(ExpenseCategory.id == category_id).first()
+        if not category:
+            raise HTTPException(status_code=404, detail="La categoría no existe.")
+
+        truck_id = data.get("truck_id", item.truck_id)
+        if category.requiere_camion == "SI" and truck_id is None:
+            raise HTTPException(status_code=400, detail="Esta categoría requiere seleccionar un camión.")
+        if category.requiere_camion == "NO":
+            data["truck_id"] = None
+
+        for field, value in data.items():
+            setattr(item, field, value)
+
+        ExpenseRepository.update(db)
+        db.refresh(item)
+        return item
 
     @staticmethod
     def delete(

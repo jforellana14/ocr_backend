@@ -70,6 +70,49 @@ class PricingSelector:
 
         return plan
 
+
+    @staticmethod
+    def get_rate_plan_for_route(db, route_id, fecha, client_id=None):
+        base_query = (
+            db.query(RatePlan)
+            .filter(RatePlan.estado == "ACTIVO")
+            .filter(RatePlan.route_id == route_id)
+            .filter(RatePlan.fecha_inicio <= fecha)
+            .filter((RatePlan.fecha_fin == None) | (RatePlan.fecha_fin >= fecha))
+        )
+
+        plan = None
+        if client_id:
+            plan = (
+                base_query
+                .filter(RatePlan.client_id == client_id)
+                .order_by(RatePlan.version.desc(), RatePlan.fecha_inicio.desc())
+                .first()
+            )
+
+        if not plan:
+            plan = (
+                base_query
+                .filter(RatePlan.client_id == None)
+                .order_by(RatePlan.version.desc(), RatePlan.fecha_inicio.desc())
+                .first()
+            )
+
+        if not plan:
+            # Respaldo para tarifarios antiguos con client_id poblado.
+            plan = (
+                base_query
+                .order_by(RatePlan.version.desc(), RatePlan.fecha_inicio.desc())
+                .first()
+            )
+
+        if not plan:
+            raise RatePlanNotFoundError(
+                "La ruta no tiene un tarifario activo para la fecha del viaje."
+            )
+
+        return plan
+
     @staticmethod
     def get_rate_plan_detail(
         db,

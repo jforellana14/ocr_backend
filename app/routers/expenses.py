@@ -3,7 +3,7 @@ from sqlalchemy.orm import Session
 
 from database import get_db
 from models import User
-from schemas import ExpenseCreate, ExpenseResponse
+from schemas import ExpenseCreate, ExpenseUpdate, ExpenseResponse
 from auth import get_current_user, require_roles
 from app.services.expense_service import ExpenseService
 
@@ -38,6 +38,16 @@ def create_expense(
     current_user: User = Depends(require_roles("ADMIN", "ENCARGADO"))
 ):
     return ExpenseService.create(db, payload, current_user)
+
+
+@router.put("/{item_id}", response_model=ExpenseResponse)
+def update_expense(
+    item_id: int,
+    payload: ExpenseUpdate,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_roles("ADMIN", "ENCARGADO"))
+):
+    return ExpenseService.update(db, item_id, payload)
 
 
 @router.delete("/{item_id}")

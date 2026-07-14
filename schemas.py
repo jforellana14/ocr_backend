@@ -291,6 +291,18 @@ class ExpenseCreate(BaseModel):
     monto: float
 
 
+class ExpenseUpdate(BaseModel):
+    expense_category_id: Optional[int] = None
+    truck_id: Optional[int] = None
+    descripcion: Optional[str] = None
+    documento: Optional[str] = None
+    fecha_inicio: Optional[date] = None
+    fecha_fin: Optional[date] = None
+    periodicidad: Optional[str] = None
+    meses_prorrateo: Optional[int] = None
+    monto: Optional[float] = None
+
+
 class ExpenseResponse(ExpenseCreate):
     id: int
     activo: str

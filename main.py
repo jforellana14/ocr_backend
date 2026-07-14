@@ -460,25 +460,39 @@ async def create_manual_document(
     if current_user.role == "PILOTO":
         final_piloto = current_user.piloto_nombre.upper().strip()
 
-    pricing = None
+    # El precio del viaje es obligatorio y se calcula en el backend.
+    # No se acepta un viaje con ingreso en cero o sin snapshot de tarifa.
+    if not fecha or not route_id or not peso_entregado:
+        raise HTTPException(
+            status_code=400,
+            detail=(
+                "Para calcular el viaje debe indicar fecha, ruta y "
+                "quintales entregados."
+            )
+        )
 
-    if cliente_id and truck_id and route_id and peso_entregado:
-        truck = db.query(Truck).filter(Truck.id == truck_id).first()
+    route = db.query(Route).filter(Route.id == route_id).first()
+    if not route:
+        raise HTTPException(status_code=404, detail="La ruta seleccionada no existe.")
 
-        if truck and truck.vehicle_type_id:
-            try:
-                pricing_date = datetime.strptime(fecha[:10], "%Y-%m-%d").date()
-                pricing = PricingEngine.calculate(
-                    db=db,
-                    fecha=pricing_date,
-                    client_id=cliente_id,
-                    route_id=route_id,
-                    vehicle_type_id=truck.vehicle_type_id,
-                    charge_type_id=1,
-                    peso=float(peso_entregado)
-                )
-            except Exception as pricing_error:
-                print(f"Pricing skipped for document: {pricing_error}")
+    # La ruta es la fuente maestra; evita guardar origen/destino vacíos o distintos.
+    origen = route.origen or origen
+    destino = route.destino or destino
+
+    try:
+        pricing_date = datetime.strptime(fecha[:10], "%Y-%m-%d").date()
+        pricing = PricingEngine.calculate_for_route(
+            db=db,
+            fecha=pricing_date,
+            route_id=route_id,
+            client_id=cliente_id,
+            peso=float(peso_entregado)
+        )
+    except Exception as pricing_error:
+        raise HTTPException(
+            status_code=400,
+            detail=f"No fue posible calcular el precio del viaje: {pricing_error}"
+        ) from pricing_error
 
     new_document = Document(
         fecha=fecha.upper(),
