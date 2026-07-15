@@ -77,6 +77,8 @@ def read_excel_rows(file_path):
 @router.post("/excel")
 async def import_tariff_excel(
     file: UploadFile = File(...),
+    vehicle_type_id: int = 1,
+    charge_type_id: int = 1,
     force_recalculate: bool = False,
     dry_run: bool = True,
     version: str = "2026",
@@ -114,6 +116,8 @@ async def import_tariff_excel(
     result = import_tariff_rows_and_update_documents(
         db=db,
         rows=rows,
+        vehicle_type_id=vehicle_type_id,
+        charge_type_id=charge_type_id,
         force_recalculate=force_recalculate
     )
 

@@ -29,58 +29,29 @@ class ExpenseCategoryService:
     @staticmethod
     def create(
         db: Session,
-        payload: ExpenseCategoryCreate,
+        payload: ExpenseCategoryCreate
     ):
-        nombre = payload.nombre.strip().upper()
-
-        if not nombre:
-            raise HTTPException(
-                status_code=400,
-                detail="El nombre de la categoría es obligatorio.",
-            )
-
         exists = (
             db.query(ExpenseCategory)
             .filter(
-                ExpenseCategory.nombre.ilike(nombre)
+                ExpenseCategory.nombre == payload.nombre
             )
             .first()
         )
 
         if exists:
-            if exists.activo == "NO":
-                exists.activo = "SI"
-                exists.tipo = payload.tipo.strip().upper()
-                exists.requiere_camion = (
-                    payload.requiere_camion.strip().upper()
-                )
-                exists.afecta_estado_resultados = (
-                    payload.afecta_estado_resultados.strip().upper()
-                )
-
-                db.commit()
-                db.refresh(exists)
-
-                return exists
-
             raise HTTPException(
                 status_code=400,
-                detail=f"La categoría {nombre} ya existe.",
+                detail="La categoría ya existe."
             )
 
         item = ExpenseCategory(
-            nombre=nombre,
-            tipo=payload.tipo.strip().upper(),
-            requiere_camion=payload.requiere_camion.strip().upper(),
-            afecta_estado_resultados=(
-                payload.afecta_estado_resultados.strip().upper()
-            ),
-            activo="SI",
+            **payload.model_dump()
         )
 
         return ExpenseCategoryRepository.create(
             db,
-            item,
+            item
         )
 
     @staticmethod
