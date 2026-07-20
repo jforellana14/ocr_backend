@@ -1,50 +1,3 @@
-<<<<<<< HEAD
-import os
-import shutil
-import uuid
-from datetime import datetime
-from typing import Optional
-
-import cloudinary
-import cloudinary.uploader
-from fastapi import Depends, FastAPI, File, Form, HTTPException, Query, UploadFile
-from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import FileResponse
-from fastapi.staticfiles import StaticFiles
-from openpyxl import Workbook
-from sqlalchemy.orm import Session
-
-from app.core.database_init import initialize_database
-from app.pricing.engine import PricingEngine
-from app.routers import (expense_categories, expenses, finance, fuel_price_sync, rate_plan_details,
-                         rate_plans, reports, tariff_excel_import, tariff_import)
-from auth import create_token, get_current_user, hash_password, require_roles, verify_password
-from database import get_db
-from models import (Base, ChargeType, Client, Document, FinancialSettings, FuelPrice,
-                    Pilot, Route, Truck, User, VehicleType)
-from schemas import (ChargeTypeCreate, ChargeTypeResponse, ClientCreate, ClientResponse,
-                     DocumentResponse, DocumentUpdate, FinancialSettingsCreate,
-                     FinancialSettingsResponse, FuelPriceCreate, FuelPriceResponse,
-                     LoginRequest, PilotCreate, PilotResponse, RouteCreate, RouteResponse,
-                     TruckCreate, TruckResponse, UserCreate, UserResponse,
-                     VehicleTypeCreate, VehicleTypeResponse)
-
-initialize_database()
-
-app = FastAPI(title="Transportes JDA ERP API", version="3.0.0")
-for router in (rate_plans.router, rate_plan_details.router, expense_categories.router,
-               expenses.router, finance.router, reports.router, tariff_import.router,
-               tariff_excel_import.router, fuel_price_sync.router):
-    app.include_router(router)
-
-cors_origins_raw = os.getenv("CORS_ORIGINS", "*")
-cors_origins = [origin.strip() for origin in cors_origins_raw.split(",") if origin.strip()]
-allow_all_origins = cors_origins == ["*"]
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=cors_origins,
-    allow_credentials=not allow_all_origins,
-=======
 from fastapi import FastAPI, Depends
 from sqlalchemy.orm import Session
 from fastapi.responses import FileResponse
@@ -54,7 +7,6 @@ from fastapi.staticfiles import StaticFiles
 import cloudinary
 import cloudinary.uploader
 import uuid
-from datetime import datetime
 from models import Base, Document, Pilot, User, Route, Client, Truck, FinancialSettings, FuelPrice, VehicleType, ChargeType
 from schemas import UserCreate, UserResponse, LoginRequest, RouteCreate, RouteResponse, ClientCreate, ClientResponse, TruckCreate, TruckResponse, FinancialSettingsCreate, FinancialSettingsResponse, FuelPriceCreate, FuelPriceResponse, VehicleTypeCreate, VehicleTypeResponse, ChargeTypeCreate, ChargeTypeResponse
 from passlib.context import CryptContext
@@ -69,8 +21,7 @@ from fastapi import UploadFile, File
 import shutil
 from fastapi.responses import FileResponse
 from openpyxl import Workbook
-from app.pricing.engine import PricingEngine
-from app.routers import vehicle_types, charge_types, fuel_prices, rate_plans, rate_plan_details, expense_categories, expenses, reports, tariff_import, tariff_excel_import, fuel_price_sync
+from routers import vehicle_types
 import os
 
 Base.metadata.create_all(bind=engine)
@@ -80,47 +31,27 @@ from sqlalchemy import text
 with engine.connect() as conn:
     conn.execute(text("""
         ALTER TABLE documents
-        ADD COLUMN IF NOT EXISTS combustible_consumido DOUBLE PRECISION;
+        ADD COLUMN IF NOT EXISTS combustible DOUBLE PRECISION;
     """))
 
     conn.execute(text("""
         ALTER TABLE documents
-        ADD COLUMN IF NOT EXISTS fuel_price_id INTEGER;
+        ADD COLUMN IF NOT EXISTS no_vale VARCHAR;
     """))
 
     conn.execute(text("""
         ALTER TABLE documents
-        ADD COLUMN IF NOT EXISTS fuel_price DOUBLE PRECISION;
+        ADD COLUMN IF NOT EXISTS costo_viaje DOUBLE PRECISION;
     """))
 
     conn.execute(text("""
         ALTER TABLE documents
-        ADD COLUMN IF NOT EXISTS rate_plan_id INTEGER;
+        ADD COLUMN IF NOT EXISTS bonificacion_piloto DOUBLE PRECISION;
     """))
 
     conn.execute(text("""
         ALTER TABLE documents
-        ADD COLUMN IF NOT EXISTS rate_plan_detail_id INTEGER;
-    """))
-
-    conn.execute(text("""
-        ALTER TABLE documents
-        ADD COLUMN IF NOT EXISTS precio_unitario DOUBLE PRECISION;
-    """))
-
-    conn.execute(text("""
-        ALTER TABLE documents
-        ADD COLUMN IF NOT EXISTS precio_total DOUBLE PRECISION;
-    """))
-
-    conn.execute(text("""
-        ALTER TABLE documents
-        ADD COLUMN IF NOT EXISTS pricing_version INTEGER DEFAULT 1;
-    """))
-
-    conn.execute(text("""
-        ALTER TABLE trucks
-        ADD COLUMN IF NOT EXISTS vehicle_type_id INTEGER;
+        ADD COLUMN IF NOT EXISTS distancia_viaje DOUBLE PRECISION;
     """))
 
     conn.execute(text("""
@@ -138,36 +69,11 @@ with engine.connect() as conn:
         ADD COLUMN IF NOT EXISTS route_id INTEGER;
     """))
 
-    conn.execute(text("""
-        ALTER TABLE documents
-        ADD COLUMN IF NOT EXISTS no_vale VARCHAR;
-    """))
-
-    conn.execute(text("""
-        ALTER TABLE documents
-        ADD COLUMN IF NOT EXISTS distancia_viaje DOUBLE PRECISION;
-    """))
-
-    conn.execute(text("""
-        ALTER TABLE documents
-        ADD COLUMN IF NOT EXISTS bonificacion_piloto DOUBLE PRECISION;
-    """))
-
     conn.commit()
 
 app = FastAPI(title="OCR Document System")
 
 app.include_router(vehicle_types.router)
-app.include_router(charge_types.router)
-app.include_router(fuel_prices.router)
-app.include_router(rate_plans.router)
-app.include_router(rate_plan_details.router)
-app.include_router(expense_categories.router)
-app.include_router(expenses.router)
-app.include_router(reports.router)
-app.include_router(tariff_import.router)
-app.include_router(tariff_excel_import.router)
-app.include_router(fuel_price_sync.router)
 
 SECRET_KEY = os.getenv("SECRET_KEY", "CHANGE_THIS_SECRET")
 ALGORITHM = "HS256"
@@ -256,17 +162,10 @@ app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
     allow_credentials=True,
->>>>>>> cf0e5c16d051ba9647f1ae05a2253b919f8c22f3
     allow_methods=["*"],
     allow_headers=["*"],
 )
 
-<<<<<<< HEAD
-cloudinary.config(cloud_name=os.getenv("CLOUDINARY_CLOUD_NAME"), api_key=os.getenv("CLOUDINARY_API_KEY"),
-                  api_secret=os.getenv("CLOUDINARY_API_SECRET"), secure=True)
-os.makedirs("uploads", exist_ok=True)
-app.mount("/uploads", StaticFiles(directory="uploads"), name="uploads")
-=======
 
 def get_db():
     db = SessionLocal()
@@ -275,39 +174,24 @@ def get_db():
     finally:
         db.close()
 
->>>>>>> cf0e5c16d051ba9647f1ae05a2253b919f8c22f3
 
 @app.get("/")
 def root():
     return {"message": "OCR Backend Running"}
     
-<<<<<<< HEAD
-=======
 from typing import Optional
 from fastapi import Query
->>>>>>> cf0e5c16d051ba9647f1ae05a2253b919f8c22f3
 
 @app.get("/pilots/filter")
 def get_pilots_filter(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user)
 ):
-<<<<<<< HEAD
-    rows = (
-        db.query(Document.piloto)
-        .filter(Document.piloto.isnot(None), Document.piloto != "")
-        .distinct()
-        .order_by(Document.piloto.asc())
-        .all()
-    )
-    return [row[0] for row in rows]
-=======
     return (
         db.query(Document.piloto)
         .distinct()
         .all()
     )
->>>>>>> cf0e5c16d051ba9647f1ae05a2253b919f8c22f3
 
 @app.get("/documents", response_model=list[DocumentResponse])
 def get_documents(
@@ -330,15 +214,6 @@ def get_documents(
             Document.created_by_user_id == current_user.id
         )
 
-<<<<<<< HEAD
-    if fecha_desde:
-        query = query.filter(Document.fecha >= fecha_desde)
-
-    if fecha_hasta:
-        query = query.filter(Document.fecha <= fecha_hasta)
-
-=======
->>>>>>> cf0e5c16d051ba9647f1ae05a2253b919f8c22f3
     if piloto:
         query = query.filter(
             Document.piloto.ilike(f"%{piloto}%")
@@ -372,20 +247,12 @@ def get_documents(
 
     return query.all()
 
-<<<<<<< HEAD
-=======
 from sqlalchemy import text
->>>>>>> cf0e5c16d051ba9647f1ae05a2253b919f8c22f3
 
 @app.post("/pilots", response_model=PilotResponse)
 def create_pilot(
     pilot: PilotCreate,
-<<<<<<< HEAD
-    db: Session = Depends(get_db),
-    current_user: User = Depends(require_roles("ADMIN", "ENCARGADO")),
-=======
     db: Session = Depends(get_db)
->>>>>>> cf0e5c16d051ba9647f1ae05a2253b919f8c22f3
 ):
     nombre = pilot.nombre.upper().strip()
 
@@ -412,32 +279,14 @@ def create_pilot(
 def update_pilot(
     pilot_id: int,
     pilot: PilotCreate,
-<<<<<<< HEAD
-    db: Session = Depends(get_db),
-    current_user: User = Depends(require_roles("ADMIN", "ENCARGADO")),
-=======
     db: Session = Depends(get_db)
->>>>>>> cf0e5c16d051ba9647f1ae05a2253b919f8c22f3
 ):
     existing = db.query(Pilot).filter(Pilot.id == pilot_id).first()
 
     if not existing:
         raise HTTPException(status_code=404, detail="Pilot not found")
 
-<<<<<<< HEAD
-    new_name = pilot.nombre.upper().strip()
-    duplicate = (
-        db.query(Pilot)
-        .filter(Pilot.nombre == new_name, Pilot.id != pilot_id)
-        .first()
-    )
-    if duplicate:
-        raise HTTPException(status_code=400, detail="Pilot already exists")
-
-    existing.nombre = new_name
-=======
     existing.nombre = pilot.nombre.upper().strip()
->>>>>>> cf0e5c16d051ba9647f1ae05a2253b919f8c22f3
 
     db.commit()
     db.refresh(existing)
@@ -457,12 +306,7 @@ def get_pilots(db: Session = Depends(get_db)):
 @app.delete("/pilots/{pilot_id}")
 def delete_pilot(
     pilot_id: int,
-<<<<<<< HEAD
-    db: Session = Depends(get_db),
-    current_user: User = Depends(require_roles("ADMIN", "ENCARGADO")),
-=======
     db: Session = Depends(get_db)
->>>>>>> cf0e5c16d051ba9647f1ae05a2253b919f8c22f3
 ):
     pilot = db.query(Pilot).filter(Pilot.id == pilot_id).first()
 
@@ -534,11 +378,8 @@ async def create_manual_document(
     no_orden_carga: str = Form(""),
     peso_entregado: str = Form(""),
     no_constancia_viaje: str = Form(""),
-    combustible_consumido: float = Form(0),
+    combustible: float = Form(0),
     no_vale: str = Form(""),
-    cliente_id: int | None = Form(None),
-    truck_id: int | None = Form(None),
-    route_id: int | None = Form(None),
     file: UploadFile = File(...),
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user)
@@ -546,11 +387,7 @@ async def create_manual_document(
     temp_dir = "temp_uploads"
     os.makedirs(temp_dir, exist_ok=True)
 
-<<<<<<< HEAD
-    file_ext = os.path.splitext(file.filename or "")[1] or ".jpg"
-=======
     file_ext = os.path.splitext(file.filename)[1] or ".jpg"
->>>>>>> cf0e5c16d051ba9647f1ae05a2253b919f8c22f3
     temp_filename = f"{uuid.uuid4()}{file_ext}"
     temp_file_path = os.path.join(temp_dir, temp_filename)
 
@@ -571,49 +408,7 @@ async def create_manual_document(
     final_piloto = piloto.upper().strip()
 
     if current_user.role == "PILOTO":
-<<<<<<< HEAD
-        if not current_user.piloto_nombre:
-            raise HTTPException(
-                status_code=400,
-                detail="El usuario piloto no tiene un piloto asociado.",
-            )
-=======
->>>>>>> cf0e5c16d051ba9647f1ae05a2253b919f8c22f3
         final_piloto = current_user.piloto_nombre.upper().strip()
-
-    # El precio del viaje es obligatorio y se calcula en el backend.
-    # No se acepta un viaje con ingreso en cero o sin snapshot de tarifa.
-    if not fecha or not route_id or not peso_entregado:
-        raise HTTPException(
-            status_code=400,
-            detail=(
-                "Para calcular el viaje debe indicar fecha, ruta y "
-                "quintales entregados."
-            )
-        )
-
-    route = db.query(Route).filter(Route.id == route_id).first()
-    if not route:
-        raise HTTPException(status_code=404, detail="La ruta seleccionada no existe.")
-
-    # La ruta es la fuente maestra; evita guardar origen/destino vacíos o distintos.
-    origen = route.origen or origen
-    destino = route.destino or destino
-
-    try:
-        pricing_date = datetime.strptime(fecha[:10], "%Y-%m-%d").date()
-        pricing = PricingEngine.calculate_for_route(
-            db=db,
-            fecha=pricing_date,
-            route_id=route_id,
-            client_id=cliente_id,
-            peso=float(peso_entregado)
-        )
-    except Exception as pricing_error:
-        raise HTTPException(
-            status_code=400,
-            detail=f"No fue posible calcular el precio del viaje: {pricing_error}"
-        ) from pricing_error
 
     new_document = Document(
         fecha=fecha.upper(),
@@ -624,19 +419,7 @@ async def create_manual_document(
         no_orden_carga=no_orden_carga.upper(),
         peso_entregado=peso_entregado.upper(),
         no_constancia_viaje=no_constancia_viaje.upper(),
-        combustible_consumido=combustible_consumido,
-        cliente_id=cliente_id,
-        truck_id=truck_id,
-        route_id=route_id,
-
-        fuel_price_id=pricing.fuel_price_id if pricing else None,
-        fuel_price=pricing.fuel_price if pricing else None,
-        rate_plan_id=pricing.rate_plan_id if pricing else None,
-        rate_plan_detail_id=pricing.rate_plan_detail_id if pricing else None,
-        precio_unitario=pricing.precio_unitario if pricing else None,
-        precio_total=pricing.precio_total if pricing else None,
-        bonificacion_piloto=pricing.bonificacion if pricing else None,
-        pricing_version=pricing.version if pricing else 1,
+        combustible=combustible,
         no_vale=no_vale.upper(),    
         image_path=image_url,
         raw_text="",
@@ -652,11 +435,6 @@ async def create_manual_document(
 
 @app.get("/export/excel")
 def export_excel(
-<<<<<<< HEAD
-    fecha_desde: str | None = None,
-    fecha_hasta: str | None = None,
-=======
->>>>>>> cf0e5c16d051ba9647f1ae05a2253b919f8c22f3
     piloto: str | None = None,
     origen: str | None = None,
     destino: str | None = None,
@@ -669,15 +447,6 @@ def export_excel(
     if current_user.role == "PILOTO":
         query = query.filter(Document.created_by_user_id == current_user.id)
 
-<<<<<<< HEAD
-    if fecha_desde:
-        query = query.filter(Document.fecha >= fecha_desde)
-
-    if fecha_hasta:
-        query = query.filter(Document.fecha <= fecha_hasta)
-
-=======
->>>>>>> cf0e5c16d051ba9647f1ae05a2253b919f8c22f3
     if piloto:
         query = query.filter(Document.piloto.ilike(f"%{piloto}%"))
 
@@ -728,7 +497,7 @@ def export_excel(
             doc.created_by_user_id,
             doc.no_orden_carga,
             doc.peso_entregado,
-            doc.combustible_consumido,
+            doc.combustible,
             doc.no_vale,
             doc.no_constancia_viaje,
             doc.image_path,
@@ -737,11 +506,7 @@ def export_excel(
 
     os.makedirs("exports", exist_ok=True)
 
-<<<<<<< HEAD
-    file_path = os.path.join("exports", f"ordenes_{uuid.uuid4().hex}.xlsx")
-=======
     file_path = "exports/ordenes_filtradas.xlsx"
->>>>>>> cf0e5c16d051ba9647f1ae05a2253b919f8c22f3
     wb.save(file_path)
 
     return FileResponse(
@@ -759,11 +524,7 @@ def login(
         User.username == payload.username.upper()
     ).first()
 
-<<<<<<< HEAD
-    if not user or user.activo != "SI":
-=======
     if not user:
->>>>>>> cf0e5c16d051ba9647f1ae05a2253b919f8c22f3
         raise HTTPException(status_code=401, detail="Invalid credentials")
 
     if not verify_password(payload.password, user.password_hash):
@@ -1116,12 +877,7 @@ def get_latest_fuel_price(db: Session = Depends(get_db)):
 @app.post("/fuel-prices", response_model=FuelPriceResponse)
 def create_fuel_price(
     fuel: FuelPriceCreate,
-<<<<<<< HEAD
-    db: Session = Depends(get_db),
-    current_user: User = Depends(require_roles("ADMIN", "ENCARGADO")),
-=======
     db: Session = Depends(get_db)
->>>>>>> cf0e5c16d051ba9647f1ae05a2253b919f8c22f3
 ):
     existing = (
         db.query(FuelPrice)

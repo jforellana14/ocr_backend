@@ -1,3 +1,4 @@
+<<<<<<< HEAD
 fastapi>=0.115,<1
 uvicorn[standard]>=0.30,<1
 sqlalchemy>=2.0,<3
@@ -10,3 +11,16 @@ passlib==1.7.4
 httpx>=0.27,<1
 beautifulsoup4>=4.12,<5
 python-dotenv>=1.0,<2
+=======
+fastapi
+uvicorn
+sqlalchemy
+python-multipart
+openpyxl
+psycopg2-binary
+cloudinary
+python-jose
+passlib==1.7.4
+httpx>=0.27,<1
+beautifulsoup4>=4.12,<5
+>>>>>>> cf0e5c16d051ba9647f1ae05a2253b919f8c22f3
