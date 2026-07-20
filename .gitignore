@@ -1,4 +1,3 @@
-<<<<<<< HEAD
 .env
 venv/
 .venv/
@@ -9,11 +8,3 @@ uploads/*
 temp_uploads/
 exports/*
 .pytest_cache/
-=======
-venv/
-__pycache__/
-*.pyc
-documents.db
-exports/
-uploads/
->>>>>>> cf0e5c16d051ba9647f1ae05a2253b919f8c22f3

@@ -1,8 +1,5 @@
 import os
-<<<<<<< HEAD
 from datetime import datetime, timedelta, timezone
-=======
->>>>>>> cf0e5c16d051ba9647f1ae05a2253b919f8c22f3
 from fastapi import Depends, HTTPException
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from jose import jwt, JWTError
@@ -15,10 +12,7 @@ from models import User
 
 SECRET_KEY = os.getenv("SECRET_KEY", "CHANGE_THIS_SECRET")
 ALGORITHM = "HS256"
-<<<<<<< HEAD
 ACCESS_TOKEN_EXPIRE_HOURS = int(os.getenv("ACCESS_TOKEN_EXPIRE_HOURS", "24"))
-=======
->>>>>>> cf0e5c16d051ba9647f1ae05a2253b919f8c22f3
 
 pwd_context = CryptContext(
     schemes=["pbkdf2_sha256"],
@@ -40,12 +34,8 @@ def create_token(user: User):
     payload = {
         "sub": user.username,
         "role": user.role,
-<<<<<<< HEAD
         "piloto_nombre": user.piloto_nombre,
         "exp": datetime.now(timezone.utc) + timedelta(hours=ACCESS_TOKEN_EXPIRE_HOURS),
-=======
-        "piloto_nombre": user.piloto_nombre
->>>>>>> cf0e5c16d051ba9647f1ae05a2253b919f8c22f3
     }
 
     return jwt.encode(payload, SECRET_KEY, algorithm=ALGORITHM)

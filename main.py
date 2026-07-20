@@ -1,4 +1,3 @@
-<<<<<<< HEAD
 import os
 import shutil
 import uuid
@@ -44,255 +43,25 @@ app.add_middleware(
     CORSMiddleware,
     allow_origins=cors_origins,
     allow_credentials=not allow_all_origins,
-=======
-from fastapi import FastAPI, Depends
-from sqlalchemy.orm import Session
-from fastapi.responses import FileResponse
-from fastapi import Form
-from fastapi.middleware.cors import CORSMiddleware
-from fastapi.staticfiles import StaticFiles
-import cloudinary
-import cloudinary.uploader
-import uuid
-from datetime import datetime
-from models import Base, Document, Pilot, User, Route, Client, Truck, FinancialSettings, FuelPrice, VehicleType, ChargeType
-from schemas import UserCreate, UserResponse, LoginRequest, RouteCreate, RouteResponse, ClientCreate, ClientResponse, TruckCreate, TruckResponse, FinancialSettingsCreate, FinancialSettingsResponse, FuelPriceCreate, FuelPriceResponse, VehicleTypeCreate, VehicleTypeResponse, ChargeTypeCreate, ChargeTypeResponse
-from passlib.context import CryptContext
-from jose import jwt, JWTError
-from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
-
-from database import SessionLocal, engine
-from schemas import DocumentCreate, DocumentResponse, DocumentUpdate, PilotCreate, PilotResponse
-from fastapi import HTTPException
-
-from fastapi import UploadFile, File
-import shutil
-from fastapi.responses import FileResponse
-from openpyxl import Workbook
-from app.pricing.engine import PricingEngine
-from app.routers import vehicle_types, charge_types, fuel_prices, rate_plans, rate_plan_details, expense_categories, expenses, reports, tariff_import, tariff_excel_import, fuel_price_sync
-import os
-
-Base.metadata.create_all(bind=engine)
-
-from sqlalchemy import text
-
-with engine.connect() as conn:
-    conn.execute(text("""
-        ALTER TABLE documents
-        ADD COLUMN IF NOT EXISTS combustible_consumido DOUBLE PRECISION;
-    """))
-
-    conn.execute(text("""
-        ALTER TABLE documents
-        ADD COLUMN IF NOT EXISTS fuel_price_id INTEGER;
-    """))
-
-    conn.execute(text("""
-        ALTER TABLE documents
-        ADD COLUMN IF NOT EXISTS fuel_price DOUBLE PRECISION;
-    """))
-
-    conn.execute(text("""
-        ALTER TABLE documents
-        ADD COLUMN IF NOT EXISTS rate_plan_id INTEGER;
-    """))
-
-    conn.execute(text("""
-        ALTER TABLE documents
-        ADD COLUMN IF NOT EXISTS rate_plan_detail_id INTEGER;
-    """))
-
-    conn.execute(text("""
-        ALTER TABLE documents
-        ADD COLUMN IF NOT EXISTS precio_unitario DOUBLE PRECISION;
-    """))
-
-    conn.execute(text("""
-        ALTER TABLE documents
-        ADD COLUMN IF NOT EXISTS precio_total DOUBLE PRECISION;
-    """))
-
-    conn.execute(text("""
-        ALTER TABLE documents
-        ADD COLUMN IF NOT EXISTS pricing_version INTEGER DEFAULT 1;
-    """))
-
-    conn.execute(text("""
-        ALTER TABLE trucks
-        ADD COLUMN IF NOT EXISTS vehicle_type_id INTEGER;
-    """))
-
-    conn.execute(text("""
-        ALTER TABLE documents
-        ADD COLUMN IF NOT EXISTS cliente_id INTEGER;
-    """))
-
-    conn.execute(text("""
-        ALTER TABLE documents
-        ADD COLUMN IF NOT EXISTS truck_id INTEGER;
-    """))
-
-    conn.execute(text("""
-        ALTER TABLE documents
-        ADD COLUMN IF NOT EXISTS route_id INTEGER;
-    """))
-
-    conn.execute(text("""
-        ALTER TABLE documents
-        ADD COLUMN IF NOT EXISTS no_vale VARCHAR;
-    """))
-
-    conn.execute(text("""
-        ALTER TABLE documents
-        ADD COLUMN IF NOT EXISTS distancia_viaje DOUBLE PRECISION;
-    """))
-
-    conn.execute(text("""
-        ALTER TABLE documents
-        ADD COLUMN IF NOT EXISTS bonificacion_piloto DOUBLE PRECISION;
-    """))
-
-    conn.commit()
-
-app = FastAPI(title="OCR Document System")
-
-app.include_router(vehicle_types.router)
-app.include_router(charge_types.router)
-app.include_router(fuel_prices.router)
-app.include_router(rate_plans.router)
-app.include_router(rate_plan_details.router)
-app.include_router(expense_categories.router)
-app.include_router(expenses.router)
-app.include_router(reports.router)
-app.include_router(tariff_import.router)
-app.include_router(tariff_excel_import.router)
-app.include_router(fuel_price_sync.router)
-
-SECRET_KEY = os.getenv("SECRET_KEY", "CHANGE_THIS_SECRET")
-ALGORITHM = "HS256"
-
-pwd_context = CryptContext(
-    schemes=["pbkdf2_sha256"],
-    deprecated="auto"
-)
-security = HTTPBearer()
-
-
-def hash_password(password: str):
-    return pwd_context.hash(password)
-
-
-def verify_password(password: str, password_hash: str):
-    return pwd_context.verify(password, password_hash)
-
-
-def create_token(user: User):
-    payload = {
-        "sub": user.username,
-        "role": user.role,
-        "piloto_nombre": user.piloto_nombre
-    }
-
-    return jwt.encode(payload, SECRET_KEY, algorithm=ALGORITHM)
-
-def get_db():
-    db = SessionLocal()
-
-    try:
-        yield db
-    finally:
-        db.close()
-
-
-def get_current_user(
-    credentials: HTTPAuthorizationCredentials = Depends(security),
-    db: Session = Depends(get_db)
-):
-    try:
-        payload = jwt.decode(
-            credentials.credentials,
-            SECRET_KEY,
-            algorithms=[ALGORITHM]
-        )
-
-        username = payload.get("sub")
-
-        user = db.query(User).filter(User.username == username).first()
-
-        if not user or user.activo != "SI":
-            raise HTTPException(status_code=401, detail="Invalid user")
-
-        return user
-
-    except JWTError:
-        raise HTTPException(status_code=401, detail="Invalid token")
-
-
-def require_roles(*roles):
-    def checker(user: User = Depends(get_current_user)):
-        if user.role not in roles:
-            raise HTTPException(status_code=403, detail="Forbidden")
-        return user
-
-    return checker
-
-cloudinary.config(
-    cloud_name=os.getenv("CLOUDINARY_CLOUD_NAME"),
-    api_key=os.getenv("CLOUDINARY_API_KEY"),
-    api_secret=os.getenv("CLOUDINARY_API_SECRET"),
-    secure=True
-)
-os.makedirs("uploads", exist_ok=True)
-
-app.mount(
-    "/uploads",
-    StaticFiles(directory="uploads"),
-    name="uploads"
-)
-
-
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=["*"],
-    allow_credentials=True,
->>>>>>> cf0e5c16d051ba9647f1ae05a2253b919f8c22f3
     allow_methods=["*"],
     allow_headers=["*"],
 )
 
-<<<<<<< HEAD
 cloudinary.config(cloud_name=os.getenv("CLOUDINARY_CLOUD_NAME"), api_key=os.getenv("CLOUDINARY_API_KEY"),
                   api_secret=os.getenv("CLOUDINARY_API_SECRET"), secure=True)
 os.makedirs("uploads", exist_ok=True)
 app.mount("/uploads", StaticFiles(directory="uploads"), name="uploads")
-=======
-
-def get_db():
-    db = SessionLocal()
-    try:
-        yield db
-    finally:
-        db.close()
-
->>>>>>> cf0e5c16d051ba9647f1ae05a2253b919f8c22f3
 
 @app.get("/")
 def root():
     return {"message": "OCR Backend Running"}
     
-<<<<<<< HEAD
-=======
-from typing import Optional
-from fastapi import Query
->>>>>>> cf0e5c16d051ba9647f1ae05a2253b919f8c22f3
 
 @app.get("/pilots/filter")
 def get_pilots_filter(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user)
 ):
-<<<<<<< HEAD
     rows = (
         db.query(Document.piloto)
         .filter(Document.piloto.isnot(None), Document.piloto != "")
@@ -301,13 +70,6 @@ def get_pilots_filter(
         .all()
     )
     return [row[0] for row in rows]
-=======
-    return (
-        db.query(Document.piloto)
-        .distinct()
-        .all()
-    )
->>>>>>> cf0e5c16d051ba9647f1ae05a2253b919f8c22f3
 
 @app.get("/documents", response_model=list[DocumentResponse])
 def get_documents(
@@ -330,15 +92,12 @@ def get_documents(
             Document.created_by_user_id == current_user.id
         )
 
-<<<<<<< HEAD
     if fecha_desde:
         query = query.filter(Document.fecha >= fecha_desde)
 
     if fecha_hasta:
         query = query.filter(Document.fecha <= fecha_hasta)
 
-=======
->>>>>>> cf0e5c16d051ba9647f1ae05a2253b919f8c22f3
     if piloto:
         query = query.filter(
             Document.piloto.ilike(f"%{piloto}%")
@@ -372,20 +131,12 @@ def get_documents(
 
     return query.all()
 
-<<<<<<< HEAD
-=======
-from sqlalchemy import text
->>>>>>> cf0e5c16d051ba9647f1ae05a2253b919f8c22f3
 
 @app.post("/pilots", response_model=PilotResponse)
 def create_pilot(
     pilot: PilotCreate,
-<<<<<<< HEAD
     db: Session = Depends(get_db),
     current_user: User = Depends(require_roles("ADMIN", "ENCARGADO")),
-=======
-    db: Session = Depends(get_db)
->>>>>>> cf0e5c16d051ba9647f1ae05a2253b919f8c22f3
 ):
     nombre = pilot.nombre.upper().strip()
 
@@ -412,19 +163,14 @@ def create_pilot(
 def update_pilot(
     pilot_id: int,
     pilot: PilotCreate,
-<<<<<<< HEAD
     db: Session = Depends(get_db),
     current_user: User = Depends(require_roles("ADMIN", "ENCARGADO")),
-=======
-    db: Session = Depends(get_db)
->>>>>>> cf0e5c16d051ba9647f1ae05a2253b919f8c22f3
 ):
     existing = db.query(Pilot).filter(Pilot.id == pilot_id).first()
 
     if not existing:
         raise HTTPException(status_code=404, detail="Pilot not found")
 
-<<<<<<< HEAD
     new_name = pilot.nombre.upper().strip()
     duplicate = (
         db.query(Pilot)
@@ -435,9 +181,6 @@ def update_pilot(
         raise HTTPException(status_code=400, detail="Pilot already exists")
 
     existing.nombre = new_name
-=======
-    existing.nombre = pilot.nombre.upper().strip()
->>>>>>> cf0e5c16d051ba9647f1ae05a2253b919f8c22f3
 
     db.commit()
     db.refresh(existing)
@@ -457,12 +200,8 @@ def get_pilots(db: Session = Depends(get_db)):
 @app.delete("/pilots/{pilot_id}")
 def delete_pilot(
     pilot_id: int,
-<<<<<<< HEAD
     db: Session = Depends(get_db),
     current_user: User = Depends(require_roles("ADMIN", "ENCARGADO")),
-=======
-    db: Session = Depends(get_db)
->>>>>>> cf0e5c16d051ba9647f1ae05a2253b919f8c22f3
 ):
     pilot = db.query(Pilot).filter(Pilot.id == pilot_id).first()
 
@@ -546,11 +285,7 @@ async def create_manual_document(
     temp_dir = "temp_uploads"
     os.makedirs(temp_dir, exist_ok=True)
 
-<<<<<<< HEAD
     file_ext = os.path.splitext(file.filename or "")[1] or ".jpg"
-=======
-    file_ext = os.path.splitext(file.filename)[1] or ".jpg"
->>>>>>> cf0e5c16d051ba9647f1ae05a2253b919f8c22f3
     temp_filename = f"{uuid.uuid4()}{file_ext}"
     temp_file_path = os.path.join(temp_dir, temp_filename)
 
@@ -571,14 +306,11 @@ async def create_manual_document(
     final_piloto = piloto.upper().strip()
 
     if current_user.role == "PILOTO":
-<<<<<<< HEAD
         if not current_user.piloto_nombre:
             raise HTTPException(
                 status_code=400,
                 detail="El usuario piloto no tiene un piloto asociado.",
             )
-=======
->>>>>>> cf0e5c16d051ba9647f1ae05a2253b919f8c22f3
         final_piloto = current_user.piloto_nombre.upper().strip()
 
     # El precio del viaje es obligatorio y se calcula en el backend.
@@ -652,11 +384,8 @@ async def create_manual_document(
 
 @app.get("/export/excel")
 def export_excel(
-<<<<<<< HEAD
     fecha_desde: str | None = None,
     fecha_hasta: str | None = None,
-=======
->>>>>>> cf0e5c16d051ba9647f1ae05a2253b919f8c22f3
     piloto: str | None = None,
     origen: str | None = None,
     destino: str | None = None,
@@ -669,15 +398,12 @@ def export_excel(
     if current_user.role == "PILOTO":
         query = query.filter(Document.created_by_user_id == current_user.id)
 
-<<<<<<< HEAD
     if fecha_desde:
         query = query.filter(Document.fecha >= fecha_desde)
 
     if fecha_hasta:
         query = query.filter(Document.fecha <= fecha_hasta)
 
-=======
->>>>>>> cf0e5c16d051ba9647f1ae05a2253b919f8c22f3
     if piloto:
         query = query.filter(Document.piloto.ilike(f"%{piloto}%"))
 
@@ -737,11 +463,7 @@ def export_excel(
 
     os.makedirs("exports", exist_ok=True)
 
-<<<<<<< HEAD
     file_path = os.path.join("exports", f"ordenes_{uuid.uuid4().hex}.xlsx")
-=======
-    file_path = "exports/ordenes_filtradas.xlsx"
->>>>>>> cf0e5c16d051ba9647f1ae05a2253b919f8c22f3
     wb.save(file_path)
 
     return FileResponse(
@@ -759,11 +481,7 @@ def login(
         User.username == payload.username.upper()
     ).first()
 
-<<<<<<< HEAD
     if not user or user.activo != "SI":
-=======
-    if not user:
->>>>>>> cf0e5c16d051ba9647f1ae05a2253b919f8c22f3
         raise HTTPException(status_code=401, detail="Invalid credentials")
 
     if not verify_password(payload.password, user.password_hash):
@@ -1116,12 +834,8 @@ def get_latest_fuel_price(db: Session = Depends(get_db)):
 @app.post("/fuel-prices", response_model=FuelPriceResponse)
 def create_fuel_price(
     fuel: FuelPriceCreate,
-<<<<<<< HEAD
     db: Session = Depends(get_db),
     current_user: User = Depends(require_roles("ADMIN", "ENCARGADO")),
-=======
-    db: Session = Depends(get_db)
->>>>>>> cf0e5c16d051ba9647f1ae05a2253b919f8c22f3
 ):
     existing = (
         db.query(FuelPrice)
