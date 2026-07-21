@@ -23,7 +23,17 @@ class DocumentCreate(BaseModel):
 
 
 class DocumentUpdate(DocumentCreate):
-    pass
+    # Campos financieros editables desde el módulo de boletas.
+    # Deben formar parte del esquema de actualización; de lo contrario
+    # Pydantic los descarta antes de que lleguen al endpoint PUT.
+    precio_unitario: Optional[float] = None
+    precio_total: Optional[float] = None
+    bonificacion_piloto: Optional[float] = None
+    fuel_price_id: Optional[int] = None
+    fuel_price: Optional[float] = None
+    rate_plan_id: Optional[int] = None
+    rate_plan_detail_id: Optional[int] = None
+    pricing_version: Optional[int] = None
 
 
 class DocumentResponse(DocumentCreate):
