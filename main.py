@@ -299,7 +299,19 @@ async def create_manual_document(
         peso_entregado = (peso_entregado or "").strip()
         no_constancia_viaje = (no_constancia_viaje or "").strip()
         no_vale = (no_vale or "").strip()
-
+        print("\n========== DOCUMENT MANUAL ==========")
+        print("fecha_original:", repr(fecha))
+        print("fecha_normalizada:", repr(fecha_normalizada))
+        print("origen:", repr(origen))
+        print("destino:", repr(destino))
+        print("producto:", repr(producto))
+        print("piloto:", repr(final_piloto))
+        print("peso_entregado:", repr(peso_entregado))
+        print("peso_numerico:", repr(peso_numerico))
+        print("cliente_id:", repr(cliente_id))
+        print("truck_id:", repr(truck_id))
+        print("route_id recibido:", repr(route_id))
+        print("=====================================\n")
         # ============================================================
         # 2. NORMALIZAR FECHA
         #
@@ -462,7 +474,10 @@ async def create_manual_document(
 
             route = rutas[0]
             route_id = route.id
-
+            print("RUTA ENCONTRADA:")
+            print("route.id:", route.id)
+            print("route.origen:", route.origen)
+            print("route.destino:", route.destino)
         # ============================================================
         # 6. USAR RUTA COMO FUENTE MAESTRA
         # ============================================================
@@ -484,6 +499,12 @@ async def create_manual_document(
         # ============================================================
 
         try:
+            print("\n========== PRICING ==========")
+            print("pricing_date:", pricing_date)
+            print("route_id:", route_id)
+            print("cliente_id:", cliente_id)
+            print("peso:", peso_numerico)
+            print("=============================\n")
             pricing = PricingEngine.calculate_for_route(
                 db=db,
                 fecha=pricing_date,
@@ -496,13 +517,21 @@ async def create_manual_document(
             raise
 
         except Exception as pricing_error:
+            import traceback
+
+            print("\n========== PRICING ERROR ==========")
+            print(type(pricing_error).__name__)
+            print(str(pricing_error))
+            traceback.print_exc()
+            print("===================================\n")
+
             raise HTTPException(
-                status_code=400,
-                detail=(
-                    "No fue posible calcular el precio del viaje: "
-                    f"{pricing_error}"
-                ),
-            ) from pricing_error
+              status_code=400,
+              detail=(
+                "No fue posible calcular el precio del viaje: "
+                f"{type(pricing_error).__name__}: {pricing_error}"
+            ),
+        ) from pricing_error
 
         if pricing is None:
             raise HTTPException(
