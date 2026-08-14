@@ -315,6 +315,16 @@ async def create_manual_document(
 
     # El precio del viaje es obligatorio y se calcula en el backend.
     # No se acepta un viaje con ingreso en cero o sin snapshot de tarifa.
+
+    print("=== DOCUMENT MANUAL ===")
+    print("fecha:", repr(fecha))
+    print("route_id:", repr(route_id))
+    print("cliente_id:", repr(cliente_id))
+    print("truck_id:", repr(truck_id))
+    print("peso_entregado:", repr(peso_entregado))
+    print("piloto:", repr(piloto))
+    print("=======================")
+  
     if not fecha or not route_id or not peso_entregado:
         raise HTTPException(
             status_code=400,
