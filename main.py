@@ -12,7 +12,7 @@ from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 from openpyxl import Workbook
 from sqlalchemy.orm import Session
-
+from sqlalchemy import func
 from app.core.database_init import initialize_database
 from app.pricing.engine import PricingEngine
 from app.routers import (expense_categories, expenses, finance, fuel_price_sync, rate_plan_details,
@@ -280,117 +280,410 @@ async def create_manual_document(
     route_id: int | None = Form(None),
     file: UploadFile = File(...),
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user)
+    current_user: User = Depends(get_current_user),
 ):
     temp_dir = "temp_uploads"
-    os.makedirs(temp_dir, exist_ok=True)
-
-    file_ext = os.path.splitext(file.filename or "")[1] or ".jpg"
-    temp_filename = f"{uuid.uuid4()}{file_ext}"
-    temp_file_path = os.path.join(temp_dir, temp_filename)
-
-    with open(temp_file_path, "wb") as buffer:
-        shutil.copyfileobj(file.file, buffer)
-
-    upload_result = cloudinary.uploader.upload(
-        temp_file_path,
-        folder="ordenes_boletas",
-        resource_type="image"
-    )
-
-    image_url = upload_result.get("secure_url")
-
-    if os.path.exists(temp_file_path):
-        os.remove(temp_file_path)
-
-    final_piloto = piloto.upper().strip()
-
-    if current_user.role == "PILOTO":
-        if not current_user.piloto_nombre:
-            raise HTTPException(
-                status_code=400,
-                detail="El usuario piloto no tiene un piloto asociado.",
-            )
-        final_piloto = current_user.piloto_nombre.upper().strip()
-
-    # El precio del viaje es obligatorio y se calcula en el backend.
-    # No se acepta un viaje con ingreso en cero o sin snapshot de tarifa.
-
-    print("=== DOCUMENT MANUAL ===")
-    print("fecha:", repr(fecha))
-    print("route_id:", repr(route_id))
-    print("cliente_id:", repr(cliente_id))
-    print("truck_id:", repr(truck_id))
-    print("peso_entregado:", repr(peso_entregado))
-    print("piloto:", repr(piloto))
-    print("=======================")
-  
-    if not fecha or not route_id or not peso_entregado:
-        raise HTTPException(
-            status_code=400,
-            detail=(
-                "Para calcular el viaje debe indicar fecha, ruta y "
-                "quintales entregados."
-            )
-        )
-
-    route = db.query(Route).filter(Route.id == route_id).first()
-    if not route:
-        raise HTTPException(status_code=404, detail="La ruta seleccionada no existe.")
-
-    # La ruta es la fuente maestra; evita guardar origen/destino vacíos o distintos.
-    origen = route.origen or origen
-    destino = route.destino or destino
+    temp_file_path = None
 
     try:
-        pricing_date = datetime.strptime(fecha[:10], "%Y-%m-%d").date()
-        pricing = PricingEngine.calculate_for_route(
-            db=db,
-            fecha=pricing_date,
-            route_id=route_id,
-            client_id=cliente_id,
-            peso=float(peso_entregado)
+        # ============================================================
+        # 1. NORMALIZAR DATOS RECIBIDOS
+        # ============================================================
+
+        fecha = (fecha or "").strip()
+        origen = (origen or "").strip()
+        destino = (destino or "").strip()
+        producto = (producto or "").strip()
+        piloto = (piloto or "").strip()
+        no_orden_carga = (no_orden_carga or "").strip()
+        peso_entregado = (peso_entregado or "").strip()
+        no_constancia_viaje = (no_constancia_viaje or "").strip()
+        no_vale = (no_vale or "").strip()
+
+        # ============================================================
+        # 2. NORMALIZAR FECHA
+        #
+        # Web:
+        #   2026-08-14
+        #
+        # Android:
+        #   14/08/2026
+        # ============================================================
+
+        if not fecha:
+            raise HTTPException(
+                status_code=400,
+                detail="Debe indicar la fecha del viaje.",
+            )
+
+        pricing_date = None
+
+        for date_format in ("%Y-%m-%d", "%d/%m/%Y"):
+            try:
+                pricing_date = datetime.strptime(
+                    fecha[:10],
+                    date_format,
+                ).date()
+                break
+            except ValueError:
+                continue
+
+        if pricing_date is None:
+            raise HTTPException(
+                status_code=400,
+                detail=(
+                    f"Formato de fecha inválido: {fecha}. "
+                    "Use YYYY-MM-DD o DD/MM/YYYY."
+                ),
+            )
+
+        # Internamente guardamos siempre ISO.
+        fecha_normalizada = pricing_date.strftime("%Y-%m-%d")
+
+        # ============================================================
+        # 3. VALIDAR PESO
+        # ============================================================
+
+        if not peso_entregado:
+            raise HTTPException(
+                status_code=400,
+                detail="Debe indicar los quintales entregados.",
+            )
+
+        try:
+            peso_numerico = float(
+                peso_entregado.replace(",", ".")
+            )
+        except (TypeError, ValueError):
+            raise HTTPException(
+                status_code=400,
+                detail=f"Peso entregado inválido: {peso_entregado}",
+            )
+
+        if peso_numerico <= 0:
+            raise HTTPException(
+                status_code=400,
+                detail="El peso entregado debe ser mayor que cero.",
+            )
+
+        # ============================================================
+        # 4. DETERMINAR PILOTO
+        # ============================================================
+
+        final_piloto = piloto.upper().strip()
+
+        if current_user.role == "PILOTO":
+            if not current_user.piloto_nombre:
+                raise HTTPException(
+                    status_code=400,
+                    detail=(
+                        "El usuario piloto no tiene un piloto "
+                        "asociado."
+                    ),
+                )
+
+            final_piloto = (
+                current_user.piloto_nombre
+                .upper()
+                .strip()
+            )
+
+        if not final_piloto:
+            raise HTTPException(
+                status_code=400,
+                detail="Debe indicar el piloto.",
+            )
+
+        # ============================================================
+        # 5. RESOLVER RUTA
+        #
+        # RC3 Web:
+        #   envía route_id
+        #
+        # Android anterior:
+        #   envía origen + destino
+        # ============================================================
+
+        route = None
+
+        if route_id is not None:
+            route = (
+                db.query(Route)
+                .filter(Route.id == route_id)
+                .first()
+            )
+
+            if not route:
+                raise HTTPException(
+                    status_code=404,
+                    detail="La ruta seleccionada no existe.",
+                )
+
+        else:
+            origen_busqueda = origen.upper()
+            destino_busqueda = destino.upper()
+
+            if not origen_busqueda or not destino_busqueda:
+                raise HTTPException(
+                    status_code=400,
+                    detail=(
+                        "Debe indicar una ruta o proporcionar "
+                        "origen y destino."
+                    ),
+                )
+
+            rutas = (
+                db.query(Route)
+                .filter(
+                    func.upper(Route.origen) == origen_busqueda,
+                    func.upper(Route.destino) == destino_busqueda,
+                )
+                .all()
+            )
+
+            if not rutas:
+                raise HTTPException(
+                    status_code=400,
+                    detail=(
+                        "No existe una ruta configurada para "
+                        f"{origen_busqueda} → {destino_busqueda}."
+                    ),
+                )
+
+            if len(rutas) > 1:
+                raise HTTPException(
+                    status_code=400,
+                    detail=(
+                        "Existe más de una ruta configurada para "
+                        f"{origen_busqueda} → {destino_busqueda}. "
+                        "Debe seleccionar la ruta explícitamente."
+                    ),
+                )
+
+            route = rutas[0]
+            route_id = route.id
+
+        # ============================================================
+        # 6. USAR RUTA COMO FUENTE MAESTRA
+        # ============================================================
+
+        origen_final = (
+            route.origen
+            or origen
+            or ""
+        ).strip().upper()
+
+        destino_final = (
+            route.destino
+            or destino
+            or ""
+        ).strip().upper()
+
+        # ============================================================
+        # 7. CALCULAR PRECIO DEL VIAJE
+        # ============================================================
+
+        try:
+            pricing = PricingEngine.calculate_for_route(
+                db=db,
+                fecha=pricing_date,
+                route_id=route_id,
+                client_id=cliente_id,
+                peso=peso_numerico,
+            )
+
+        except HTTPException:
+            raise
+
+        except Exception as pricing_error:
+            raise HTTPException(
+                status_code=400,
+                detail=(
+                    "No fue posible calcular el precio del viaje: "
+                    f"{pricing_error}"
+                ),
+            ) from pricing_error
+
+        if pricing is None:
+            raise HTTPException(
+                status_code=400,
+                detail=(
+                    "No fue posible obtener una tarifa válida "
+                    "para el viaje."
+                ),
+            )
+
+        # ============================================================
+        # 8. GUARDAR IMAGEN TEMPORALMENTE
+        # ============================================================
+
+        os.makedirs(
+            temp_dir,
+            exist_ok=True,
         )
-    except Exception as pricing_error:
-        raise HTTPException(
-            status_code=400,
-            detail=f"No fue posible calcular el precio del viaje: {pricing_error}"
-        ) from pricing_error
 
-    new_document = Document(
-        fecha=fecha.upper(),
-        origen=origen.upper(),
-        destino=destino.upper(),
-        producto=producto.upper(),
-        piloto=final_piloto,
-        no_orden_carga=no_orden_carga.upper(),
-        peso_entregado=peso_entregado.upper(),
-        no_constancia_viaje=no_constancia_viaje.upper(),
-        combustible_consumido=combustible_consumido,
-        cliente_id=cliente_id,
-        truck_id=truck_id,
-        route_id=route_id,
+        file_ext = (
+            os.path.splitext(file.filename or "")[1]
+            or ".jpg"
+        )
 
-        fuel_price_id=pricing.fuel_price_id if pricing else None,
-        fuel_price=pricing.fuel_price if pricing else None,
-        rate_plan_id=pricing.rate_plan_id if pricing else None,
-        rate_plan_detail_id=pricing.rate_plan_detail_id if pricing else None,
-        precio_unitario=pricing.precio_unitario if pricing else None,
-        precio_total=pricing.precio_total if pricing else None,
-        bonificacion_piloto=pricing.bonificacion if pricing else None,
-        pricing_version=pricing.version if pricing else 1,
-        no_vale=no_vale.upper(),    
-        image_path=image_url,
-        raw_text="",
-        created_by_user_id=current_user.id,
-        created_by_username=current_user.username
-    )
+        temp_filename = (
+            f"{uuid.uuid4()}{file_ext}"
+        )
 
-    db.add(new_document)
-    db.commit()
-    db.refresh(new_document)
+        temp_file_path = os.path.join(
+            temp_dir,
+            temp_filename,
+        )
 
-    return new_document
+        with open(temp_file_path, "wb") as buffer:
+            shutil.copyfileobj(
+                file.file,
+                buffer,
+            )
+
+        # ============================================================
+        # 9. SUBIR IMAGEN A CLOUDINARY
+        # ============================================================
+
+        try:
+            upload_result = cloudinary.uploader.upload(
+                temp_file_path,
+                folder="ordenes_boletas",
+                resource_type="image",
+            )
+        except Exception as upload_error:
+            raise HTTPException(
+                status_code=500,
+                detail=(
+                    "No fue posible subir la imagen de la boleta: "
+                    f"{upload_error}"
+                ),
+            ) from upload_error
+
+        image_url = upload_result.get("secure_url")
+
+        if not image_url:
+            raise HTTPException(
+                status_code=500,
+                detail=(
+                    "Cloudinary no devolvió la URL de la imagen."
+                ),
+            )
+
+        # ============================================================
+        # 10. CREAR DOCUMENTO
+        # ============================================================
+
+        new_document = Document(
+            fecha=fecha_normalizada,
+            origen=origen_final,
+            destino=destino_final,
+            producto=producto.upper(),
+            piloto=final_piloto,
+
+            no_orden_carga=no_orden_carga.upper(),
+            peso_entregado=peso_entregado.upper(),
+            no_constancia_viaje=(
+                no_constancia_viaje.upper()
+            ),
+
+            combustible_consumido=combustible_consumido,
+            no_vale=no_vale.upper(),
+
+            cliente_id=cliente_id,
+            truck_id=truck_id,
+            route_id=route_id,
+
+            # Snapshot de combustible
+            fuel_price_id=(
+                pricing.fuel_price_id
+                if pricing
+                else None
+            ),
+            fuel_price=(
+                pricing.fuel_price
+                if pricing
+                else None
+            ),
+
+            # Snapshot de tarifa
+            rate_plan_id=(
+                pricing.rate_plan_id
+                if pricing
+                else None
+            ),
+            rate_plan_detail_id=(
+                pricing.rate_plan_detail_id
+                if pricing
+                else None
+            ),
+
+            precio_unitario=(
+                pricing.precio_unitario
+                if pricing
+                else None
+            ),
+            precio_total=(
+                pricing.precio_total
+                if pricing
+                else None
+            ),
+
+            bonificacion_piloto=(
+                pricing.bonificacion
+                if pricing
+                else None
+            ),
+
+            pricing_version=(
+                pricing.version
+                if pricing
+                else 1
+            ),
+
+            image_path=image_url,
+            raw_text="",
+
+            created_by_user_id=current_user.id,
+            created_by_username=current_user.username,
+        )
+
+        # ============================================================
+        # 11. GUARDAR EN BASE DE DATOS
+        # ============================================================
+
+        try:
+            db.add(new_document)
+            db.commit()
+            db.refresh(new_document)
+
+        except Exception as database_error:
+            db.rollback()
+
+            raise HTTPException(
+                status_code=500,
+                detail=(
+                    "No fue posible guardar la boleta en "
+                    f"la base de datos: {database_error}"
+                ),
+            ) from database_error
+
+        return new_document
+
+    finally:
+        # ============================================================
+        # 12. LIMPIEZA DEL ARCHIVO TEMPORAL
+        # ============================================================
+
+        if (
+            temp_file_path
+            and os.path.exists(temp_file_path)
+        ):
+            try:
+                os.remove(temp_file_path)
+            except OSError:
+                pass
 
 @app.get("/export/excel")
 def export_excel(
