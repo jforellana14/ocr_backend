@@ -287,10 +287,10 @@ async def create_manual_document(
 
     try:
         # ============================================================
-        # 1. NORMALIZAR DATOS RECIBIDOS
+        # 1. NORMALIZAR DATOS
         # ============================================================
 
-        fecha = (fecha or "").strip()
+        fecha_original = (fecha or "").strip()
         origen = (origen or "").strip()
         destino = (destino or "").strip()
         producto = (producto or "").strip()
@@ -299,30 +299,15 @@ async def create_manual_document(
         peso_entregado = (peso_entregado or "").strip()
         no_constancia_viaje = (no_constancia_viaje or "").strip()
         no_vale = (no_vale or "").strip()
-        print("\n========== DOCUMENT MANUAL ==========")
-        print("fecha_original:", repr(fecha))
-        print("fecha_normalizada:", repr(fecha_normalizada))
-        print("origen:", repr(origen))
-        print("destino:", repr(destino))
-        print("producto:", repr(producto))
-        print("piloto:", repr(final_piloto))
-        print("peso_entregado:", repr(peso_entregado))
-        print("peso_numerico:", repr(peso_numerico))
-        print("cliente_id:", repr(cliente_id))
-        print("truck_id:", repr(truck_id))
-        print("route_id recibido:", repr(route_id))
-        print("=====================================\n")
+
         # ============================================================
         # 2. NORMALIZAR FECHA
         #
-        # Web:
-        #   2026-08-14
-        #
-        # Android:
-        #   14/08/2026
+        # Web:     YYYY-MM-DD
+        # Android: DD/MM/YYYY
         # ============================================================
 
-        if not fecha:
+        if not fecha_original:
             raise HTTPException(
                 status_code=400,
                 detail="Debe indicar la fecha del viaje.",
@@ -333,7 +318,7 @@ async def create_manual_document(
         for date_format in ("%Y-%m-%d", "%d/%m/%Y"):
             try:
                 pricing_date = datetime.strptime(
-                    fecha[:10],
+                    fecha_original[:10],
                     date_format,
                 ).date()
                 break
@@ -344,12 +329,12 @@ async def create_manual_document(
             raise HTTPException(
                 status_code=400,
                 detail=(
-                    f"Formato de fecha inválido: {fecha}. "
+                    f"Formato de fecha inválido: {fecha_original}. "
                     "Use YYYY-MM-DD o DD/MM/YYYY."
                 ),
             )
 
-        # Internamente guardamos siempre ISO.
+        # Siempre guardar ISO en la base de datos.
         fecha_normalizada = pricing_date.strftime("%Y-%m-%d")
 
         # ============================================================
@@ -389,8 +374,7 @@ async def create_manual_document(
                 raise HTTPException(
                     status_code=400,
                     detail=(
-                        "El usuario piloto no tiene un piloto "
-                        "asociado."
+                        "El usuario piloto no tiene un piloto asociado."
                     ),
                 )
 
@@ -407,13 +391,37 @@ async def create_manual_document(
             )
 
         # ============================================================
+        # DEBUG
+        #
+        # IMPORTANTE:
+        # Está aquí porque fecha_normalizada, peso_numerico y
+        # final_piloto YA EXISTEN.
+        # ============================================================
+
+        print("\n========== DOCUMENT MANUAL ==========")
+        print("fecha_original:", repr(fecha_original))
+        print("fecha_normalizada:", repr(fecha_normalizada))
+        print("pricing_date:", repr(pricing_date))
+        print("origen:", repr(origen))
+        print("destino:", repr(destino))
+        print("producto:", repr(producto))
+        print("piloto:", repr(final_piloto))
+        print("peso_entregado:", repr(peso_entregado))
+        print("peso_numerico:", repr(peso_numerico))
+        print("combustible_consumido:", repr(combustible_consumido))
+        print("cliente_id:", repr(cliente_id))
+        print("truck_id:", repr(truck_id))
+        print("route_id recibido:", repr(route_id))
+        print("=====================================\n")
+
+        # ============================================================
         # 5. RESOLVER RUTA
         #
-        # RC3 Web:
-        #   envía route_id
+        # Frontend RC3:
+        #     puede enviar route_id
         #
-        # Android anterior:
-        #   envía origen + destino
+        # Android:
+        #     actualmente envía origen + destino
         # ============================================================
 
         route = None
@@ -432,14 +440,14 @@ async def create_manual_document(
                 )
 
         else:
-            origen_busqueda = origen.upper()
-            destino_busqueda = destino.upper()
+            origen_busqueda = origen.upper().strip()
+            destino_busqueda = destino.upper().strip()
 
             if not origen_busqueda or not destino_busqueda:
                 raise HTTPException(
                     status_code=400,
                     detail=(
-                        "Debe indicar una ruta o proporcionar "
+                        "Debe indicar route_id o proporcionar "
                         "origen y destino."
                     ),
                 )
@@ -447,13 +455,22 @@ async def create_manual_document(
             rutas = (
                 db.query(Route)
                 .filter(
-                    func.upper(Route.origen) == origen_busqueda,
-                    func.upper(Route.destino) == destino_busqueda,
+                    func.upper(func.trim(Route.origen))
+                    == origen_busqueda,
+                    func.upper(func.trim(Route.destino))
+                    == destino_busqueda,
                 )
                 .all()
             )
 
             if not rutas:
+                print(
+                    "RUTA NO ENCONTRADA:",
+                    origen_busqueda,
+                    "->",
+                    destino_busqueda,
+                )
+
                 raise HTTPException(
                     status_code=400,
                     detail=(
@@ -463,6 +480,11 @@ async def create_manual_document(
                 )
 
             if len(rutas) > 1:
+                print(
+                    "MULTIPLES RUTAS:",
+                    [r.id for r in rutas],
+                )
+
                 raise HTTPException(
                     status_code=400,
                     detail=(
@@ -474,12 +496,15 @@ async def create_manual_document(
 
             route = rutas[0]
             route_id = route.id
-            print("RUTA ENCONTRADA:")
-            print("route.id:", route.id)
-            print("route.origen:", route.origen)
-            print("route.destino:", route.destino)
+
+        print("\n========== RUTA ENCONTRADA ==========")
+        print("route.id:", route.id)
+        print("route.origen:", repr(route.origen))
+        print("route.destino:", repr(route.destino))
+        print("=====================================\n")
+
         # ============================================================
-        # 6. USAR RUTA COMO FUENTE MAESTRA
+        # 6. RUTA COMO FUENTE MAESTRA
         # ============================================================
 
         origen_final = (
@@ -495,16 +520,17 @@ async def create_manual_document(
         ).strip().upper()
 
         # ============================================================
-        # 7. CALCULAR PRECIO DEL VIAJE
+        # 7. CALCULAR TARIFA
         # ============================================================
 
+        print("\n========== PRICING INPUT ==========")
+        print("pricing_date:", repr(pricing_date))
+        print("route_id:", repr(route_id))
+        print("cliente_id:", repr(cliente_id))
+        print("peso:", repr(peso_numerico))
+        print("===================================\n")
+
         try:
-            print("\n========== PRICING ==========")
-            print("pricing_date:", pricing_date)
-            print("route_id:", route_id)
-            print("cliente_id:", cliente_id)
-            print("peso:", peso_numerico)
-            print("=============================\n")
             pricing = PricingEngine.calculate_for_route(
                 db=db,
                 fecha=pricing_date,
@@ -520,18 +546,25 @@ async def create_manual_document(
             import traceback
 
             print("\n========== PRICING ERROR ==========")
-            print(type(pricing_error).__name__)
-            print(str(pricing_error))
+            print(
+                "tipo:",
+                type(pricing_error).__name__,
+            )
+            print(
+                "error:",
+                str(pricing_error),
+            )
             traceback.print_exc()
             print("===================================\n")
 
             raise HTTPException(
-              status_code=400,
-              detail=(
-                "No fue posible calcular el precio del viaje: "
-                f"{type(pricing_error).__name__}: {pricing_error}"
-            ),
-        ) from pricing_error
+                status_code=400,
+                detail=(
+                    "No fue posible calcular el precio del viaje: "
+                    f"{type(pricing_error).__name__}: "
+                    f"{pricing_error}"
+                ),
+            ) from pricing_error
 
         if pricing is None:
             raise HTTPException(
@@ -542,8 +575,31 @@ async def create_manual_document(
                 ),
             )
 
+        print("\n========== PRICING OK ==========")
+        print(
+            "rate_plan_id:",
+            getattr(pricing, "rate_plan_id", None),
+        )
+        print(
+            "rate_plan_detail_id:",
+            getattr(pricing, "rate_plan_detail_id", None),
+        )
+        print(
+            "precio_unitario:",
+            getattr(pricing, "precio_unitario", None),
+        )
+        print(
+            "precio_total:",
+            getattr(pricing, "precio_total", None),
+        )
+        print(
+            "bonificacion:",
+            getattr(pricing, "bonificacion", None),
+        )
+        print("===============================\n")
+
         # ============================================================
-        # 8. GUARDAR IMAGEN TEMPORALMENTE
+        # 8. GUARDAR IMAGEN TEMPORAL
         # ============================================================
 
         os.makedirs(
@@ -556,9 +612,7 @@ async def create_manual_document(
             or ".jpg"
         )
 
-        temp_filename = (
-            f"{uuid.uuid4()}{file_ext}"
-        )
+        temp_filename = f"{uuid.uuid4()}{file_ext}"
 
         temp_file_path = os.path.join(
             temp_dir,
@@ -572,7 +626,7 @@ async def create_manual_document(
             )
 
         # ============================================================
-        # 9. SUBIR IMAGEN A CLOUDINARY
+        # 9. CLOUDINARY
         # ============================================================
 
         try:
@@ -581,7 +635,14 @@ async def create_manual_document(
                 folder="ordenes_boletas",
                 resource_type="image",
             )
+
         except Exception as upload_error:
+            print(
+                "CLOUDINARY ERROR:",
+                type(upload_error).__name__,
+                str(upload_error),
+            )
+
             raise HTTPException(
                 status_code=500,
                 detail=(
@@ -624,52 +685,52 @@ async def create_manual_document(
             truck_id=truck_id,
             route_id=route_id,
 
-            # Snapshot de combustible
-            fuel_price_id=(
-                pricing.fuel_price_id
-                if pricing
-                else None
+            # Snapshot del combustible
+            fuel_price_id=getattr(
+                pricing,
+                "fuel_price_id",
+                None,
             ),
-            fuel_price=(
-                pricing.fuel_price
-                if pricing
-                else None
+            fuel_price=getattr(
+                pricing,
+                "fuel_price",
+                None,
             ),
 
             # Snapshot de tarifa
-            rate_plan_id=(
-                pricing.rate_plan_id
-                if pricing
-                else None
+            rate_plan_id=getattr(
+                pricing,
+                "rate_plan_id",
+                None,
             ),
-            rate_plan_detail_id=(
-                pricing.rate_plan_detail_id
-                if pricing
-                else None
-            ),
-
-            precio_unitario=(
-                pricing.precio_unitario
-                if pricing
-                else None
-            ),
-            precio_total=(
-                pricing.precio_total
-                if pricing
-                else None
+            rate_plan_detail_id=getattr(
+                pricing,
+                "rate_plan_detail_id",
+                None,
             ),
 
-            bonificacion_piloto=(
-                pricing.bonificacion
-                if pricing
-                else None
+            precio_unitario=getattr(
+                pricing,
+                "precio_unitario",
+                None,
+            ),
+            precio_total=getattr(
+                pricing,
+                "precio_total",
+                None,
             ),
 
-            pricing_version=(
-                pricing.version
-                if pricing
-                else 1
+            bonificacion_piloto=getattr(
+                pricing,
+                "bonificacion",
+                None,
             ),
+
+            pricing_version=getattr(
+                pricing,
+                "version",
+                1,
+            ) or 1,
 
             image_path=image_url,
             raw_text="",
@@ -679,7 +740,7 @@ async def create_manual_document(
         )
 
         # ============================================================
-        # 11. GUARDAR EN BASE DE DATOS
+        # 11. GUARDAR EN POSTGRESQL
         # ============================================================
 
         try:
@@ -690,6 +751,16 @@ async def create_manual_document(
         except Exception as database_error:
             db.rollback()
 
+            import traceback
+
+            print("\n========== DATABASE ERROR ==========")
+            print(
+                type(database_error).__name__,
+                str(database_error),
+            )
+            traceback.print_exc()
+            print("====================================\n")
+
             raise HTTPException(
                 status_code=500,
                 detail=(
@@ -698,11 +769,16 @@ async def create_manual_document(
                 ),
             ) from database_error
 
+        print(
+            "DOCUMENTO CREADO CORRECTAMENTE:",
+            new_document.id,
+        )
+
         return new_document
 
     finally:
         # ============================================================
-        # 12. LIMPIEZA DEL ARCHIVO TEMPORAL
+        # 12. LIMPIAR ARCHIVO TEMPORAL
         # ============================================================
 
         if (
@@ -713,7 +789,6 @@ async def create_manual_document(
                 os.remove(temp_file_path)
             except OSError:
                 pass
-
 @app.get("/export/excel")
 def export_excel(
     fecha_desde: str | None = None,
