@@ -287,7 +287,7 @@ async def create_manual_document(
 
     try:
         # ============================================================
-        # 1. NORMALIZAR DATOS
+        # 1. NORMALIZAR DATOS RECIBIDOS
         # ============================================================
 
         fecha_original = (fecha or "").strip()
@@ -334,7 +334,7 @@ async def create_manual_document(
                 ),
             )
 
-        # Siempre guardar ISO en la base de datos.
+        # Siempre guardar fecha ISO en PostgreSQL/documento
         fecha_normalizada = pricing_date.strftime("%Y-%m-%d")
 
         # ============================================================
@@ -391,11 +391,7 @@ async def create_manual_document(
             )
 
         # ============================================================
-        # DEBUG
-        #
-        # IMPORTANTE:
-        # Está aquí porque fecha_normalizada, peso_numerico y
-        # final_piloto YA EXISTEN.
+        # 5. DEBUG DE ENTRADA
         # ============================================================
 
         print("\n========== DOCUMENT MANUAL ==========")
@@ -408,25 +404,32 @@ async def create_manual_document(
         print("piloto:", repr(final_piloto))
         print("peso_entregado:", repr(peso_entregado))
         print("peso_numerico:", repr(peso_numerico))
-        print("combustible_consumido:", repr(combustible_consumido))
+        print(
+            "combustible_consumido:",
+            repr(combustible_consumido),
+        )
         print("cliente_id:", repr(cliente_id))
         print("truck_id:", repr(truck_id))
         print("route_id recibido:", repr(route_id))
         print("=====================================\n")
 
         # ============================================================
-        # 5. RESOLVER RUTA
+        # 6. RESOLVER RUTA
         #
-        # Frontend RC3:
+        # Web RC3:
         #     puede enviar route_id
         #
-        # Android:
-        #     actualmente envía origen + destino
+        # Android actual:
+        #     envía origen + destino
         # ============================================================
 
         route = None
 
         if route_id is not None:
+            # --------------------------------------------------------
+            # A. El cliente envió explícitamente route_id
+            # --------------------------------------------------------
+
             route = (
                 db.query(Route)
                 .filter(Route.id == route_id)
@@ -436,12 +439,24 @@ async def create_manual_document(
             if not route:
                 raise HTTPException(
                     status_code=404,
-                    detail="La ruta seleccionada no existe.",
+                    detail=(
+                        f"La ruta seleccionada ({route_id}) no existe."
+                    ),
                 )
 
         else:
-            origen_busqueda = origen.upper().strip()
-            destino_busqueda = destino.upper().strip()
+            # --------------------------------------------------------
+            # B. Android no envió route_id.
+            #    Intentamos resolverlo por origen + destino.
+            # --------------------------------------------------------
+
+            origen_busqueda = " ".join(
+                origen.upper().split()
+            )
+
+            destino_busqueda = " ".join(
+                destino.upper().split()
+            )
 
             if not origen_busqueda or not destino_busqueda:
                 raise HTTPException(
@@ -451,6 +466,10 @@ async def create_manual_document(
                         "origen y destino."
                     ),
                 )
+
+            # --------------------------------------------------------
+            # B1. Coincidencia exacta normalizada
+            # --------------------------------------------------------
 
             rutas = (
                 db.query(Route)
@@ -463,6 +482,94 @@ async def create_manual_document(
                 .all()
             )
 
+            # --------------------------------------------------------
+            # B2. Coincidencia parcial desde PostgreSQL
+            #
+            # Ejemplo:
+            # Android: TERPAC
+            # BD:      TERPAC GUATEMALA
+            # --------------------------------------------------------
+
+            if not rutas:
+                rutas = (
+                    db.query(Route)
+                    .filter(
+                        func.upper(Route.origen).contains(
+                            origen_busqueda
+                        ),
+                        func.upper(Route.destino).contains(
+                            destino_busqueda
+                        ),
+                    )
+                    .all()
+                )
+
+            # --------------------------------------------------------
+            # B3. Comparación bidireccional en Python
+            #
+            # También cubre el caso contrario:
+            #
+            # Android: TERPAC GUATEMALA
+            # BD:      TERPAC
+            # --------------------------------------------------------
+
+            if not rutas:
+                todas_las_rutas = db.query(Route).all()
+                coincidencias = []
+
+                for candidate in todas_las_rutas:
+                    candidate_origen = " ".join(
+                        (
+                            candidate.origen
+                            or ""
+                        )
+                        .strip()
+                        .upper()
+                        .split()
+                    )
+
+                    candidate_destino = " ".join(
+                        (
+                            candidate.destino
+                            or ""
+                        )
+                        .strip()
+                        .upper()
+                        .split()
+                    )
+
+                    if (
+                        not candidate_origen
+                        or not candidate_destino
+                    ):
+                        continue
+
+                    origen_coincide = (
+                        origen_busqueda
+                        == candidate_origen
+                        or origen_busqueda in candidate_origen
+                        or candidate_origen in origen_busqueda
+                    )
+
+                    destino_coincide = (
+                        destino_busqueda
+                        == candidate_destino
+                        or destino_busqueda in candidate_destino
+                        or candidate_destino in destino_busqueda
+                    )
+
+                    if (
+                        origen_coincide
+                        and destino_coincide
+                    ):
+                        coincidencias.append(candidate)
+
+                rutas = coincidencias
+
+            # --------------------------------------------------------
+            # B4. No encontramos ninguna ruta compatible
+            # --------------------------------------------------------
+
             if not rutas:
                 print(
                     "RUTA NO ENCONTRADA:",
@@ -471,25 +578,65 @@ async def create_manual_document(
                     destino_busqueda,
                 )
 
+                # Para diagnóstico, mostrar rutas que al menos
+                # tengan un origen parecido.
+                rutas_origen = (
+                    db.query(Route)
+                    .filter(
+                        func.upper(Route.origen).contains(
+                            origen_busqueda
+                        )
+                    )
+                    .all()
+                )
+
+                print(
+                    "RUTAS CON ORIGEN PARECIDO:",
+                    [
+                        {
+                            "id": r.id,
+                            "origen": r.origen,
+                            "destino": r.destino,
+                        }
+                        for r in rutas_origen
+                    ],
+                )
+
                 raise HTTPException(
                     status_code=400,
                     detail=(
                         "No existe una ruta configurada para "
-                        f"{origen_busqueda} → {destino_busqueda}."
+                        f"{origen_busqueda} → "
+                        f"{destino_busqueda}."
                     ),
                 )
 
+            # --------------------------------------------------------
+            # B5. Hay varias rutas compatibles.
+            #
+            # No escoger una arbitrariamente porque podríamos
+            # aplicar una tarifa incorrecta.
+            # --------------------------------------------------------
+
             if len(rutas) > 1:
                 print(
-                    "MULTIPLES RUTAS:",
-                    [r.id for r in rutas],
+                    "MULTIPLES RUTAS COMPATIBLES:",
+                    [
+                        {
+                            "id": r.id,
+                            "origen": r.origen,
+                            "destino": r.destino,
+                        }
+                        for r in rutas
+                    ],
                 )
 
                 raise HTTPException(
                     status_code=400,
                     detail=(
-                        "Existe más de una ruta configurada para "
-                        f"{origen_busqueda} → {destino_busqueda}. "
+                        "Existe más de una ruta compatible con "
+                        f"{origen_busqueda} → "
+                        f"{destino_busqueda}. "
                         "Debe seleccionar la ruta explícitamente."
                     ),
                 )
@@ -497,16 +644,17 @@ async def create_manual_document(
             route = rutas[0]
             route_id = route.id
 
+        # ============================================================
+        # 7. RUTA RESUELTA
+        # ============================================================
+
         print("\n========== RUTA ENCONTRADA ==========")
         print("route.id:", route.id)
         print("route.origen:", repr(route.origen))
         print("route.destino:", repr(route.destino))
         print("=====================================\n")
 
-        # ============================================================
-        # 6. RUTA COMO FUENTE MAESTRA
-        # ============================================================
-
+        # Ruta = fuente maestra de origen/destino
         origen_final = (
             route.origen
             or origen
@@ -520,7 +668,7 @@ async def create_manual_document(
         ).strip().upper()
 
         # ============================================================
-        # 7. CALCULAR TARIFA
+        # 8. CALCULAR TARIFA DEL VIAJE
         # ============================================================
 
         print("\n========== PRICING INPUT ==========")
@@ -540,6 +688,8 @@ async def create_manual_document(
             )
 
         except HTTPException:
+            # Mantener intactos los errores explícitos
+            # generados por PricingEngine.
             raise
 
         except Exception as pricing_error:
@@ -554,7 +704,9 @@ async def create_manual_document(
                 "error:",
                 str(pricing_error),
             )
+
             traceback.print_exc()
+
             print("===================================\n")
 
             raise HTTPException(
@@ -575,14 +727,62 @@ async def create_manual_document(
                 ),
             )
 
+        # ============================================================
+        # 9. VALIDAR RESULTADO DEL PRICING
+        # ============================================================
+
+        precio_total = getattr(
+            pricing,
+            "precio_total",
+            None,
+        )
+
+        if precio_total is None:
+            raise HTTPException(
+                status_code=400,
+                detail=(
+                    "El motor de tarifas no devolvió "
+                    "precio_total."
+                ),
+            )
+
+        try:
+            if float(precio_total) <= 0:
+                raise HTTPException(
+                    status_code=400,
+                    detail=(
+                        "El precio calculado del viaje debe "
+                        "ser mayor que cero."
+                    ),
+                )
+        except (TypeError, ValueError):
+            raise HTTPException(
+                status_code=400,
+                detail=(
+                    f"Precio total inválido: {precio_total}"
+                ),
+            )
+
         print("\n========== PRICING OK ==========")
+        print(
+            "fuel_price_id:",
+            getattr(pricing, "fuel_price_id", None),
+        )
+        print(
+            "fuel_price:",
+            getattr(pricing, "fuel_price", None),
+        )
         print(
             "rate_plan_id:",
             getattr(pricing, "rate_plan_id", None),
         )
         print(
             "rate_plan_detail_id:",
-            getattr(pricing, "rate_plan_detail_id", None),
+            getattr(
+                pricing,
+                "rate_plan_detail_id",
+                None,
+            ),
         )
         print(
             "precio_unitario:",
@@ -590,16 +790,24 @@ async def create_manual_document(
         )
         print(
             "precio_total:",
-            getattr(pricing, "precio_total", None),
+            precio_total,
         )
         print(
             "bonificacion:",
             getattr(pricing, "bonificacion", None),
         )
+        print(
+            "version:",
+            getattr(pricing, "version", None),
+        )
         print("===============================\n")
 
         # ============================================================
-        # 8. GUARDAR IMAGEN TEMPORAL
+        # 10. PREPARAR ARCHIVO TEMPORAL
+        #
+        # Importante:
+        # Solo hacemos esto después de validar ruta y tarifa,
+        # para no dejar imágenes huérfanas.
         # ============================================================
 
         os.makedirs(
@@ -608,25 +816,32 @@ async def create_manual_document(
         )
 
         file_ext = (
-            os.path.splitext(file.filename or "")[1]
+            os.path.splitext(
+                file.filename or ""
+            )[1]
             or ".jpg"
         )
 
-        temp_filename = f"{uuid.uuid4()}{file_ext}"
+        temp_filename = (
+            f"{uuid.uuid4()}{file_ext}"
+        )
 
         temp_file_path = os.path.join(
             temp_dir,
             temp_filename,
         )
 
-        with open(temp_file_path, "wb") as buffer:
+        with open(
+            temp_file_path,
+            "wb",
+        ) as buffer:
             shutil.copyfileobj(
                 file.file,
                 buffer,
             )
 
         # ============================================================
-        # 9. CLOUDINARY
+        # 11. SUBIR A CLOUDINARY
         # ============================================================
 
         try:
@@ -637,72 +852,98 @@ async def create_manual_document(
             )
 
         except Exception as upload_error:
+            import traceback
+
+            print("\n========== CLOUDINARY ERROR ==========")
             print(
-                "CLOUDINARY ERROR:",
                 type(upload_error).__name__,
                 str(upload_error),
             )
+            traceback.print_exc()
+            print("======================================\n")
 
             raise HTTPException(
                 status_code=500,
                 detail=(
-                    "No fue posible subir la imagen de la boleta: "
+                    "No fue posible subir la imagen "
+                    "de la boleta: "
                     f"{upload_error}"
                 ),
             ) from upload_error
 
-        image_url = upload_result.get("secure_url")
+        image_url = upload_result.get(
+            "secure_url"
+        )
 
         if not image_url:
             raise HTTPException(
                 status_code=500,
                 detail=(
-                    "Cloudinary no devolvió la URL de la imagen."
+                    "Cloudinary no devolvió la URL "
+                    "de la imagen."
                 ),
             )
 
         # ============================================================
-        # 10. CREAR DOCUMENTO
+        # 12. CREAR DOCUMENTO
         # ============================================================
 
         new_document = Document(
             fecha=fecha_normalizada,
+
             origen=origen_final,
             destino=destino_final,
+
             producto=producto.upper(),
             piloto=final_piloto,
 
             no_orden_carga=no_orden_carga.upper(),
+
+            # Mantenemos string porque tu modelo actualmente
+            # usa este formato.
             peso_entregado=peso_entregado.upper(),
+
             no_constancia_viaje=(
                 no_constancia_viaje.upper()
             ),
 
-            combustible_consumido=combustible_consumido,
+            combustible_consumido=(
+                combustible_consumido
+            ),
+
             no_vale=no_vale.upper(),
 
+            # Relaciones
             cliente_id=cliente_id,
             truck_id=truck_id,
             route_id=route_id,
 
-            # Snapshot del combustible
+            # --------------------------------------------------------
+            # Snapshot de combustible
+            # --------------------------------------------------------
+
             fuel_price_id=getattr(
                 pricing,
                 "fuel_price_id",
                 None,
             ),
+
             fuel_price=getattr(
                 pricing,
                 "fuel_price",
                 None,
             ),
 
-            # Snapshot de tarifa
+            # --------------------------------------------------------
+            # Snapshot de tarifario
+            # --------------------------------------------------------
+
             rate_plan_id=getattr(
                 pricing,
                 "rate_plan_id",
                 None,
             ),
+
             rate_plan_detail_id=getattr(
                 pricing,
                 "rate_plan_detail_id",
@@ -714,11 +955,8 @@ async def create_manual_document(
                 "precio_unitario",
                 None,
             ),
-            precio_total=getattr(
-                pricing,
-                "precio_total",
-                None,
-            ),
+
+            precio_total=precio_total,
 
             bonificacion_piloto=getattr(
                 pricing,
@@ -726,21 +964,27 @@ async def create_manual_document(
                 None,
             ),
 
-            pricing_version=getattr(
-                pricing,
-                "version",
-                1,
-            ) or 1,
+            pricing_version=(
+                getattr(
+                    pricing,
+                    "version",
+                    1,
+                )
+                or 1
+            ),
 
+            # Imagen
             image_path=image_url,
+
             raw_text="",
 
+            # Auditoría
             created_by_user_id=current_user.id,
             created_by_username=current_user.username,
         )
 
         # ============================================================
-        # 11. GUARDAR EN POSTGRESQL
+        # 13. GUARDAR EN POSTGRESQL
         # ============================================================
 
         try:
@@ -758,27 +1002,40 @@ async def create_manual_document(
                 type(database_error).__name__,
                 str(database_error),
             )
+
             traceback.print_exc()
+
             print("====================================\n")
 
             raise HTTPException(
                 status_code=500,
                 detail=(
-                    "No fue posible guardar la boleta en "
-                    f"la base de datos: {database_error}"
+                    "No fue posible guardar la boleta "
+                    "en la base de datos: "
+                    f"{database_error}"
                 ),
             ) from database_error
 
+        # ============================================================
+        # 14. RESULTADO
+        # ============================================================
+
+        print("\n========== DOCUMENTO CREADO ==========")
+        print("document.id:", new_document.id)
+        print("fecha:", new_document.fecha)
+        print("route_id:", new_document.route_id)
+        print("precio_total:", new_document.precio_total)
         print(
-            "DOCUMENTO CREADO CORRECTAMENTE:",
-            new_document.id,
+            "bonificacion:",
+            new_document.bonificacion_piloto,
         )
+        print("======================================\n")
 
         return new_document
 
     finally:
         # ============================================================
-        # 12. LIMPIAR ARCHIVO TEMPORAL
+        # 15. LIMPIAR ARCHIVO TEMPORAL
         # ============================================================
 
         if (
@@ -789,96 +1046,6 @@ async def create_manual_document(
                 os.remove(temp_file_path)
             except OSError:
                 pass
-@app.get("/export/excel")
-def export_excel(
-    fecha_desde: str | None = None,
-    fecha_hasta: str | None = None,
-    piloto: str | None = None,
-    origen: str | None = None,
-    destino: str | None = None,
-    producto: str | None = None,
-    db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user)
-):
-    query = db.query(Document)
-
-    if current_user.role == "PILOTO":
-        query = query.filter(Document.created_by_user_id == current_user.id)
-
-    if fecha_desde:
-        query = query.filter(Document.fecha >= fecha_desde)
-
-    if fecha_hasta:
-        query = query.filter(Document.fecha <= fecha_hasta)
-
-    if piloto:
-        query = query.filter(Document.piloto.ilike(f"%{piloto}%"))
-
-    if origen:
-        query = query.filter(Document.origen.ilike(f"%{origen}%"))
-
-    if destino:
-        query = query.filter(Document.destino.ilike(f"%{destino}%"))
-
-    if producto:
-        query = query.filter(Document.producto.ilike(f"%{producto}%"))
-
-    documents = query.order_by(Document.created_at.desc()).all()
-
-    wb = Workbook()
-    ws = wb.active
-    ws.title = "Ordenes"
-
-    headers = [
-        "ID",
-        "Fecha",
-        "Origen",
-        "Destino",
-        "Producto",
-        "Piloto",
-        "Usuario",
-        "User ID",
-        "No. Orden de Carga",
-        "Peso Entregado",
-        "Combustible (galones)",
-        "No. Vale",
-        "No. Constancia de Viaje",
-        "Imagen",
-        "Created At"
-    ]
-
-    ws.append(headers)
-
-    for doc in documents:
-        ws.append([
-            doc.id,
-            doc.fecha,
-            doc.origen,
-            doc.destino,
-            doc.producto,
-            doc.piloto,
-            doc.created_by_username,
-            doc.created_by_user_id,
-            doc.no_orden_carga,
-            doc.peso_entregado,
-            doc.combustible_consumido,
-            doc.no_vale,
-            doc.no_constancia_viaje,
-            doc.image_path,
-            str(doc.created_at)
-        ])
-
-    os.makedirs("exports", exist_ok=True)
-
-    file_path = os.path.join("exports", f"ordenes_{uuid.uuid4().hex}.xlsx")
-    wb.save(file_path)
-
-    return FileResponse(
-        path=file_path,
-        filename="ordenes_filtradas.xlsx",
-        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
-    )
-
 @app.post("/auth/login")
 def login(
     payload: LoginRequest,
