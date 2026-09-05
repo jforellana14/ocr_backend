@@ -339,3 +339,25 @@ class TariffImportHistoryResponse(BaseModel):
 
     class Config:
         from_attributes = True
+
+
+class UserUpdate(BaseModel):
+    username: Optional[str] = None
+    role: Optional[str] = None
+    piloto_id: Optional[int] = None
+    is_active: Optional[bool] = None
+
+
+class UserPasswordUpdate(BaseModel):
+    password: str
+
+
+class UserResponse(BaseModel):
+    id: int
+    username: str
+    role: str
+    piloto_id: Optional[int] = None
+    is_active: bool
+
+    class Config:
+        from_attributes = True
