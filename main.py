@@ -27,7 +27,7 @@ from schemas import (ChargeTypeCreate, ChargeTypeResponse, ClientCreate, ClientR
                      DocumentResponse, DocumentUpdate, FinancialSettingsCreate,
                      FinancialSettingsResponse, FuelPriceCreate, FuelPriceResponse,
                      LoginRequest, PilotCreate, PilotResponse, RouteCreate, RouteResponse,
-                     TruckCreate, TruckResponse, UserCreate, UserResponse,
+                     TruckCreate, TruckResponse, UserCreate, UserResponse, UserUpdate, UserPasswordUpdate,
                      VehicleTypeCreate, VehicleTypeResponse)
 
 initialize_database()
@@ -1416,13 +1416,30 @@ def create_user(
 
     if existing:
         raise HTTPException(status_code=400, detail="User already exists")
+    if role not in {"ADMIN", "ENCARGADO", "PILOTO"}:
+        raise HTTPException(status_code=400, detail="Invalid role")
+    if len(payload.password.strip()) < 6:
+        raise HTTPException(status_code=400, detail="Password must contain at least 6 characters")
+
+    piloto_nombre = payload.piloto_nombre.upper().strip() if payload.piloto_nombre else None
+    if role == "PILOTO":
+        if not piloto_nombre:
+            raise HTTPException(status_code=400, detail="Pilot users must have piloto_nombre")
+        pilot = db.query(Pilot).filter(
+            func.upper(func.trim(Pilot.nombre)) == piloto_nombre,
+            Pilot.activo == "SI"
+        ).first()
+        if not pilot:
+            raise HTTPException(status_code=400, detail="Active pilot not found")
+        piloto_nombre = pilot.nombre
+    else:
+        piloto_nombre = None
 
     user = User(
         username=username,
         password_hash=hash_password(payload.password),
         role=role,
-        piloto_nombre=payload.piloto_nombre.upper().strip()
-        if payload.piloto_nombre else None,
+        piloto_nombre=piloto_nombre,
         activo="SI"
     )
 
@@ -1431,6 +1448,89 @@ def create_user(
     db.refresh(user)
 
     return user
+
+
+@app.get("/users", response_model=list[UserResponse])
+def list_users(db: Session = Depends(get_db), current_user: User = Depends(require_roles("ADMIN"))):
+    return db.query(User).order_by(User.username.asc()).all()
+
+@app.get("/users/{user_id}", response_model=UserResponse)
+def get_user_by_id(user_id: int, db: Session = Depends(get_db), current_user: User = Depends(require_roles("ADMIN"))):
+    user = db.query(User).filter(User.id == user_id).first()
+    if not user:
+        raise HTTPException(status_code=404, detail="User not found")
+    return user
+
+@app.put("/users/{user_id}", response_model=UserResponse)
+def update_user(user_id: int, payload: UserUpdate, db: Session = Depends(get_db), current_user: User = Depends(require_roles("ADMIN"))):
+    user = db.query(User).filter(User.id == user_id).first()
+    if not user:
+        raise HTTPException(status_code=404, detail="User not found")
+    data = payload.model_dump(exclude_unset=True)
+    if "username" in data:
+        username = (data["username"] or "").upper().strip()
+        if not username:
+            raise HTTPException(status_code=400, detail="Username cannot be empty")
+        if db.query(User).filter(User.username == username, User.id != user_id).first():
+            raise HTTPException(status_code=400, detail="User already exists")
+        user.username = username
+    if "role" in data:
+        role = (data["role"] or "").upper().strip()
+        if role not in {"ADMIN", "ENCARGADO", "PILOTO"}:
+            raise HTTPException(status_code=400, detail="Invalid role")
+        user.role = role
+    if "piloto_nombre" in data:
+        user.piloto_nombre = (data["piloto_nombre"] or "").upper().strip() or None
+    if user.role == "PILOTO":
+        if not user.piloto_nombre:
+            raise HTTPException(status_code=400, detail="Pilot users must have piloto_nombre")
+        pilot = db.query(Pilot).filter(func.upper(func.trim(Pilot.nombre)) == user.piloto_nombre, Pilot.activo == "SI").first()
+        if not pilot:
+            raise HTTPException(status_code=400, detail="Active pilot not found")
+        user.piloto_nombre = pilot.nombre
+    else:
+        user.piloto_nombre = None
+    if "activo" in data:
+        activo = (data["activo"] or "").upper().strip()
+        if activo not in {"SI", "NO"}:
+            raise HTTPException(status_code=400, detail="activo must be SI or NO")
+        if user.id == current_user.id and activo == "NO":
+            raise HTTPException(status_code=400, detail="You cannot deactivate your own user")
+        user.activo = activo
+    try:
+        db.commit(); db.refresh(user)
+    except Exception as exc:
+        db.rollback(); raise HTTPException(status_code=500, detail=f"Error updating user: {exc}")
+    return user
+
+@app.put("/users/{user_id}/password")
+def update_user_password(user_id: int, payload: UserPasswordUpdate, db: Session = Depends(get_db), current_user: User = Depends(require_roles("ADMIN"))):
+    user = db.query(User).filter(User.id == user_id).first()
+    if not user:
+        raise HTTPException(status_code=404, detail="User not found")
+    password = payload.password.strip()
+    if len(password) < 6:
+        raise HTTPException(status_code=400, detail="Password must contain at least 6 characters")
+    user.password_hash = hash_password(password)
+    try:
+        db.commit()
+    except Exception as exc:
+        db.rollback(); raise HTTPException(status_code=500, detail=f"Error updating password: {exc}")
+    return {"message": "Password updated successfully"}
+
+@app.delete("/users/{user_id}")
+def deactivate_user(user_id: int, db: Session = Depends(get_db), current_user: User = Depends(require_roles("ADMIN"))):
+    user = db.query(User).filter(User.id == user_id).first()
+    if not user:
+        raise HTTPException(status_code=404, detail="User not found")
+    if user.id == current_user.id:
+        raise HTTPException(status_code=400, detail="You cannot deactivate your own user")
+    user.activo = "NO"
+    try:
+        db.commit()
+    except Exception as exc:
+        db.rollback(); raise HTTPException(status_code=500, detail=f"Error deactivating user: {exc}")
+    return {"message": "User deactivated successfully"}
 
 @app.post("/routes", response_model=RouteResponse)
 def create_route(
