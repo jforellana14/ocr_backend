@@ -6,6 +6,8 @@ from typing import Optional
 
 import cloudinary
 import cloudinary.uploader
+import tempfile
+from urllib.parse import urlparse
 from fastapi import Depends, FastAPI, File, Form, HTTPException, Query, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse
@@ -222,26 +224,348 @@ def update_document(
     db: Session = Depends(get_db)
 ):
     if current_user.role == "PILOTO":
-        raise HTTPException(status_code=403, detail="Pilots cannot edit documents")
-    
-    document = db.query(Document).filter(Document.id == document_id).first()
+        raise HTTPException(
+            status_code=403,
+            detail="Pilots cannot edit documents"
+        )
+
+    document = db.query(Document).filter(
+        Document.id == document_id
+    ).first()
 
     if not document:
-        raise HTTPException(status_code=404, detail="Document not found")
+        raise HTTPException(
+            status_code=404,
+            detail="Document not found"
+        )
 
     data = payload.dict(exclude_unset=True)
 
+    # =====================================================
+    # VALIDAR PRECIO DE COMBUSTIBLE
+    # =====================================================
+
+    if "fuel_price" in data:
+        fuel_price = data["fuel_price"]
+
+        if fuel_price is not None:
+            try:
+                fuel_price = float(fuel_price)
+            except (TypeError, ValueError):
+                raise HTTPException(
+                    status_code=400,
+                    detail="Invalid fuel price"
+                )
+
+            if fuel_price < 0:
+                raise HTTPException(
+                    status_code=400,
+                    detail="Fuel price cannot be negative"
+                )
+
+            data["fuel_price"] = fuel_price
+
+            # Si el precio fue ingresado manualmente,
+            # deja de estar asociado a un registro automático.
+            data["fuel_price_id"] = None
+
+    # =====================================================
+    # ACTUALIZAR CAMPOS
+    # =====================================================
+
     for key, value in data.items():
+
         if isinstance(value, str):
             setattr(document, key, value.upper())
         else:
             setattr(document, key, value)
 
-    db.commit()
-    db.refresh(document)
+    try:
+        db.commit()
+        db.refresh(document)
+
+    except Exception as e:
+        db.rollback()
+
+        print(
+            "ERROR actualizando documento:",
+            str(e)
+        )
+
+        raise HTTPException(
+            status_code=500,
+            detail="Error updating document"
+        )
 
     return document
 
+@app.put("/documents/{document_id}/image", response_model=DocumentResponse)
+async def replace_document_image(
+    document_id: int,
+    image: UploadFile = File(...),
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    if current_user.role == "PILOTO":
+        raise HTTPException(
+            status_code=403,
+            detail="Pilots cannot edit documents"
+        )
+
+    document = db.query(Document).filter(
+        Document.id == document_id
+    ).first()
+
+    if not document:
+        raise HTTPException(
+            status_code=404,
+            detail="Document not found"
+        )
+
+    # =====================================================
+    # VALIDAR IMAGEN
+    # =====================================================
+
+    allowed_types = {
+        "image/jpeg",
+        "image/jpg",
+        "image/png",
+        "image/webp"
+    }
+
+    if image.content_type not in allowed_types:
+        raise HTTPException(
+            status_code=400,
+            detail="Invalid image format"
+        )
+
+    old_image_url = document.image_path
+    new_image_url = None
+    new_public_id = None
+    temp_path = None
+
+    try:
+
+        # =================================================
+        # GUARDAR ARCHIVO TEMPORAL
+        # =================================================
+
+        suffix = os.path.splitext(
+            image.filename or ""
+        )[1]
+
+        if not suffix:
+            suffix = ".jpg"
+
+        with tempfile.NamedTemporaryFile(
+            delete=False,
+            suffix=suffix
+        ) as temp_file:
+
+            content = await image.read()
+
+            if not content:
+                raise HTTPException(
+                    status_code=400,
+                    detail="Empty image"
+                )
+
+            temp_file.write(content)
+
+            temp_path = temp_file.name
+
+        # =================================================
+        # SUBIR NUEVA IMAGEN A CLOUDINARY
+        # =================================================
+
+        print(
+            "Subiendo nueva imagen de boleta a Cloudinary..."
+        )
+
+        upload_result = cloudinary.uploader.upload(
+            temp_path,
+            folder="ordenes_boletas",
+            resource_type="image"
+        )
+
+        new_image_url = upload_result.get("secure_url")
+        new_public_id = upload_result.get("public_id")
+
+        if not new_image_url or not new_public_id:
+            raise Exception(
+                "Cloudinary did not return secure_url/public_id"
+            )
+
+        print(
+            "Nueva imagen Cloudinary:",
+            new_public_id
+        )
+
+        # =================================================
+        # ACTUALIZAR BD
+        # =================================================
+
+        document.image_path = new_image_url
+
+        db.commit()
+        db.refresh(document)
+
+        # =================================================
+        # ELIMINAR IMAGEN ANTERIOR
+        #
+        # Se hace DESPUÉS de:
+        # 1. subir nueva imagen
+        # 2. guardar nueva URL en PostgreSQL
+        # =================================================
+
+        if (
+            old_image_url
+            and "res.cloudinary.com" in old_image_url
+            and old_image_url != new_image_url
+        ):
+
+            try:
+
+                parsed_url = urlparse(old_image_url)
+                path = parsed_url.path
+
+                if "/upload/" not in path:
+                    raise Exception(
+                        "Could not determine old Cloudinary public_id"
+                    )
+
+                cloudinary_path = path.split(
+                    "/upload/",
+                    1
+                )[1]
+
+                partes = cloudinary_path.split("/")
+
+                # Quitar versión v123456
+                if (
+                    partes
+                    and partes[0].startswith("v")
+                    and partes[0][1:].isdigit()
+                ):
+                    partes = partes[1:]
+
+                cloudinary_path = "/".join(partes)
+
+                # Quitar extensión
+                old_public_id = cloudinary_path.rsplit(
+                    ".",
+                    1
+                )[0]
+
+                print(
+                    "Eliminando imagen anterior:",
+                    old_public_id
+                )
+
+                resultado = cloudinary.uploader.destroy(
+                    old_public_id,
+                    resource_type="image",
+                    invalidate=True
+                )
+
+                print(
+                    "Resultado eliminación:",
+                    resultado
+                )
+
+                cloudinary_result = resultado.get("result")
+
+                if cloudinary_result not in (
+                    "ok",
+                    "not found"
+                ):
+                    raise Exception(
+                        "Cloudinary did not confirm deletion "
+                        f"of old image: {resultado}"
+                    )
+
+            except Exception as e:
+
+                # La nueva imagen YA está guardada.
+                # No borramos la boleta ni revertimos
+                # a una URL que podría quedar inconsistente.
+                print(
+                    "ADVERTENCIA: nueva imagen guardada, "
+                    "pero no se pudo eliminar la anterior:",
+                    str(e)
+                )
+
+        return document
+
+    except HTTPException:
+
+        db.rollback()
+
+        # Si ya subimos la nueva imagen pero PostgreSQL falló,
+        # intentar eliminarla para no dejarla huérfana.
+        if new_public_id:
+
+            try:
+                cloudinary.uploader.destroy(
+                    new_public_id,
+                    resource_type="image",
+                    invalidate=True
+                )
+            except Exception:
+                pass
+
+        raise
+
+    except Exception as e:
+
+        db.rollback()
+
+        # =================================================
+        # LIMPIAR NUEVA IMAGEN SI ALGO FALLÓ
+        # =================================================
+
+        if new_public_id:
+
+            try:
+
+                cloudinary.uploader.destroy(
+                    new_public_id,
+                    resource_type="image",
+                    invalidate=True
+                )
+
+            except Exception as cleanup_error:
+
+                print(
+                    "ERROR limpiando nueva imagen:",
+                    str(cleanup_error)
+                )
+
+        print(
+            "ERROR reemplazando imagen:",
+            str(e)
+        )
+
+        raise HTTPException(
+            status_code=502,
+            detail=(
+                "Could not replace document image. "
+                "Original image was preserved."
+            )
+        )
+
+    finally:
+
+        # =================================================
+        # BORRAR ARCHIVO TEMPORAL
+        # =================================================
+
+        if temp_path and os.path.exists(temp_path):
+
+            try:
+                os.remove(temp_path)
+            except Exception:
+                pass
 
 @app.delete("/documents/{document_id}")
 def delete_document(
@@ -250,18 +574,157 @@ def delete_document(
     current_user: User = Depends(get_current_user)
 ):
     if current_user.role == "PILOTO":
-        raise HTTPException(status_code=403, detail="Pilots cannot delete documents")
-    
-    document = db.query(Document).filter(Document.id == document_id).first()
+        raise HTTPException(
+            status_code=403,
+            detail="Pilots cannot delete documents"
+        )
+
+    document = db.query(Document).filter(
+        Document.id == document_id
+    ).first()
 
     if not document:
-        raise HTTPException(status_code=404, detail="Document not found")
+        raise HTTPException(
+            status_code=404,
+            detail="Document not found"
+        )
 
-    db.delete(document)
-    db.commit()
+    # =====================================================
+    # ELIMINAR IMAGEN DE CLOUDINARY
+    # =====================================================
 
-    return {"message": "Document deleted successfully"}
+    if document.image_path:
 
+        image_url = document.image_path
+
+        # Solo procesar como Cloudinary si la URL pertenece a Cloudinary
+        if "res.cloudinary.com" in image_url:
+
+            try:
+                parsed_url = urlparse(image_url)
+                path = parsed_url.path
+
+                if "/upload/" not in path:
+                    raise HTTPException(
+                        status_code=500,
+                        detail="Could not determine Cloudinary public_id"
+                    )
+
+                # Ejemplo:
+                # v123456/ordenes_boletas/imagen.jpg
+                cloudinary_path = path.split("/upload/", 1)[1]
+
+                partes = cloudinary_path.split("/")
+
+                # Quitar versión v123456
+                if (
+                    partes
+                    and partes[0].startswith("v")
+                    and partes[0][1:].isdigit()
+                ):
+                    partes = partes[1:]
+
+                cloudinary_path = "/".join(partes)
+
+                # Quitar extensión
+                public_id = cloudinary_path.rsplit(".", 1)[0]
+
+                print(
+                    f"Eliminando imagen Cloudinary: {public_id}"
+                )
+
+                resultado = cloudinary.uploader.destroy(
+                    public_id,
+                    resource_type="image",
+                    invalidate=True
+                )
+
+                print(
+                    f"Resultado Cloudinary: {resultado}"
+                )
+
+                cloudinary_result = resultado.get("result")
+
+                # =============================================
+                # RESULTADOS ACEPTADOS
+                # =============================================
+
+                # "ok" = imagen eliminada correctamente
+                #
+                # "not found" = imagen ya no existe.
+                # Permitimos eliminar la boleta porque no
+                # quedará una imagen huérfana.
+
+                if cloudinary_result not in ("ok", "not found"):
+
+                    print(
+                        "Cloudinary no confirmó eliminación:",
+                        resultado
+                    )
+
+                    raise HTTPException(
+                        status_code=502,
+                        detail=(
+                            "Cloudinary could not delete the image. "
+                            "Document was NOT deleted."
+                        )
+                    )
+
+            except HTTPException:
+                # Importante:
+                # No continuar con db.delete()
+                raise
+
+            except Exception as e:
+
+                print(
+                    "ERROR eliminando imagen de Cloudinary:",
+                    str(e)
+                )
+
+                raise HTTPException(
+                    status_code=502,
+                    detail=(
+                        "Error deleting image from Cloudinary. "
+                        "Document was NOT deleted. "
+                        f"Error: {str(e)}"
+                    )
+                )
+
+    # =====================================================
+    # ELIMINAR REGISTRO DE BASE DE DATOS
+    #
+    # Solo llegamos aquí si:
+    #
+    # 1. No había imagen
+    # 2. No era una URL Cloudinary
+    # 3. Cloudinary respondió "ok"
+    # 4. Cloudinary respondió "not found"
+    # =====================================================
+
+    try:
+
+        db.delete(document)
+        db.commit()
+
+    except Exception as e:
+
+        db.rollback()
+
+        print(
+            "ERROR eliminando documento de BD:",
+            str(e)
+        )
+
+        raise HTTPException(
+            status_code=500,
+            detail="Error deleting document from database"
+        )
+
+    return {
+        "message": "Document deleted successfully",
+        "document_id": document_id
+    }
 
 @app.post("/documents/manual", response_model=DocumentResponse)
 async def create_manual_document(
